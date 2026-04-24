@@ -1168,6 +1168,35 @@ input, textarea, select { font: inherit; color: inherit; }
   margin-bottom: 16px;
 }
 
+.play-map-section {
+  margin-bottom: 16px;
+}
+.play-map-section .map-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-faint);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.play-map-section .map-label::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--rust);
+  flex-shrink: 0;
+}
+.play-node-map {
+  width: 100%;
+  height: 200px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
 .play-validation {
   margin-top: 16px;
   padding-top: 16px;
@@ -2693,7 +2722,8 @@ const Scenario = {
         difficulty: 'moyen',
         startNodeId: null,
         area: { center: [48.8566, 2.3522], zoom: 13 },
-        tileProvider: DEFAULT_PROVIDER
+        tileProvider: DEFAULT_PROVIDER,
+        showMapToPlayers: false
       },
       nodes: [],
       links: [],
@@ -2706,6 +2736,9 @@ const Scenario = {
     // Migration : scénarios créés avant le support multi-providers
     if (this.current?.meta && !this.current.meta.tileProvider) {
       this.current.meta.tileProvider = DEFAULT_PROVIDER;
+    }
+    if (this.current?.meta && this.current.meta.showMapToPlayers === undefined) {
+      this.current.meta.showMapToPlayers = false;
     }
     this.touch(false);
     this.emit('load');
@@ -3318,6 +3351,28 @@ const Inspector = {
         ]
       }
     ], scn, onChange));
+
+    // Options de jeu
+    const gameOpts = el('div', { class: 'inspector-section' });
+    gameOpts.appendChild(el('h3', {}, 'Options de jeu'));
+    const mapToggleWrap = el('div', { class: 'field' });
+    mapToggleWrap.appendChild(el('label', {}, 'Carte visible par les joueurs'));
+    const mapToggleSel = el('select', {
+      onchange: e => {
+        scn.meta.showMapToPlayers = e.target.value === 'yes';
+        Scenario.touch();
+      }
+    },
+      el('option', { value: 'no' }, 'Non — carte masquée'),
+      el('option', { value: 'yes' }, 'Oui — afficher la destination sur une mini-carte')
+    );
+    mapToggleSel.value = scn.meta.showMapToPlayers ? 'yes' : 'no';
+    mapToggleWrap.appendChild(mapToggleSel);
+    mapToggleWrap.appendChild(el('div', { class: 'field-hint' },
+      'Si activé, chaque étape positionnée affiche une mini-carte Leaflet pour aider les joueurs à naviguer.'
+    ));
+    gameOpts.appendChild(mapToggleWrap);
+    frag.appendChild(gameOpts);
 
     // Départ
     const startSection = el('div', { class: 'inspector-section' });
@@ -4474,6 +4529,14 @@ const Player = {
       cancelAnimationFrame(this.qrAnimFrame);
       this.qrAnimFrame = null;
     }
+    if (this._playerMap) {
+      try { this._playerMap.remove(); } catch (e) {}
+      this._playerMap = null;
+    }
+    if (this._playerMapWatchId != null) {
+      try { navigator.geolocation.clearWatch(this._playerMapWatchId); } catch (e) {}
+      this._playerMapWatchId = null;
+    }
   },
 
   // ---------- Écrans ----------
@@ -4730,6 +4793,15 @@ const Player = {
       else if (valType === 'code') this._buildCodeUI(valWrap, node);
       else                         this._buildNoneUI(valWrap, node);
     }
+    // Mini-carte si activée et nœud positionné
+    if (this.scenario.meta.showMapToPlayers && node.position?.lat != null && node.position?.lng != null) {
+      const mapSection = el('div', { class: 'play-map-section' },
+        el('div', { class: 'map-label' }, 'Destination'),
+        el('div', { class: 'play-node-map', id: 'play-node-map-el' })
+      );
+      card.appendChild(mapSection);
+    }
+
     card.appendChild(valWrap);
 
     // Panneau test
@@ -4756,6 +4828,52 @@ const Player = {
     w.appendChild(exitRow);
 
     this.container.appendChild(w);
+
+    // Initialiser la mini-carte après injection dans le DOM
+    if (this.scenario.meta.showMapToPlayers && node.position?.lat != null && node.position?.lng != null) {
+      this._buildNodeMap(document.getElementById('play-node-map-el'), node);
+    }
+  },
+
+  _buildNodeMap(mapEl, node) {
+    if (!mapEl) return;
+    const providerId = this.scenario.meta.tileProvider || DEFAULT_PROVIDER;
+    const { lat, lng } = node.position;
+
+    const map = L.map(mapEl, { zoomControl: true }).setView([lat, lng], 15);
+    this._playerMap = map;
+    createCachedTileLayer(providerId).addTo(map);
+
+    const icon = L.divIcon({
+      className: `node-marker type-${node.type}`,
+      html: '★',
+      iconSize: [28, 28],
+      iconAnchor: [14, 14]
+    });
+    L.marker([lat, lng], { icon, title: node.title }).addTo(map);
+
+    // Position du joueur si GPS dispo
+    if (navigator.geolocation && window.isSecureContext) {
+      let playerMarker = null;
+      this._playerMapWatchId = navigator.geolocation.watchPosition(
+        pos => {
+          const ll = [pos.coords.latitude, pos.coords.longitude];
+          if (!playerMarker) {
+            playerMarker = L.circleMarker(ll, {
+              radius: 7,
+              color: 'var(--rust)',
+              fillColor: 'var(--rust)',
+              fillOpacity: 0.85,
+              weight: 2
+            }).addTo(map);
+          } else {
+            playerMarker.setLatLng(ll);
+          }
+        },
+        null,
+        { enableHighAccuracy: true, maximumAge: 4000 }
+      );
+    }
   },
 
   // ---------- Validations ----------
