@@ -541,8 +541,12 @@ const Toast = {
   show(message, kind = 'info', ms = 3000) {
     const icons = { info: 'i', ok: '✓', warn: '!', error: '×' };
     const actualKind = kind === 'ok' ? 'info' : kind;
-    const t = el('div', { class: `toast ${actualKind}` },
-      el('span', { class: 'icon' }, icons[kind] || 'i'),
+    const t = el('div', {
+      class: `toast ${actualKind}`,
+      // Une erreur interrompt la lecture en cours ; le reste attend.
+      role: kind === 'error' ? 'alert' : 'status'
+    },
+      el('span', { class: 'icon', 'aria-hidden': 'true' }, icons[kind] || 'i'),
       el('span', {}, message)
     );
     this.container.appendChild(t);
@@ -553,8 +557,8 @@ const Toast = {
   },
   /** Toast persistant portant une action — mise à jour, reprise… */
   action(message, label, onClick) {
-    const t = el('div', { class: 'toast info with-action' },
-      el('span', { class: 'icon' }, '↻'),
+    const t = el('div', { class: 'toast info with-action', role: 'status' },
+      el('span', { class: 'icon', 'aria-hidden': 'true' }, '↻'),
       el('span', {}, message),
       el('button', {
         class: 'toast-action',
@@ -860,13 +864,17 @@ const Scenario = {
     }).catch(console.error);
   },
 
+  /**
+   * @param {boolean|string} markDirty  un identifiant de groupe (clé du
+   *   champ édité) au lieu de `true` fusionne les frappes successives dans
+   *   une seule entrée d'historique.
+   */
   touch(markDirty = true) {
     if (!this.current) return;
     this.current.updatedAt = Date.now();
-    if (markDirty) {
-      History.enregistrer();
-      App.markDirty();
-    }
+    if (markDirty === false) return;
+    History.enregistrer(typeof markDirty === 'string' ? markDirty : null);
+    App.markDirty();
   },
 
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
@@ -990,10 +998,14 @@ const Scenario = {
 // ============================================================
 const History = {
   MAX: 60,
+  /** Frappes consécutives sur le même champ, regroupées en une entrée. */
+  FUSION_MS: 900,
   _passe: [],
   _futur: [],
   _reference: null,
   _gele: false,
+  _dernierGroupe: null,
+  _dernierInstant: 0,
 
   /**
    * Instantanés JSON du scénario. C'est grossier, mais les médias vivent
@@ -1012,22 +1024,50 @@ const History = {
     this._passe = [];
     this._futur = [];
     this._reference = this._snapshot();
+    this._dernierGroupe = null;
     this._notifier();
   },
+
+  /**
+   * Ferme le groupe en cours : la prochaine modification ouvrira sa propre
+   * entrée. À appeler quand on quitte un champ ou qu'on change de sujet.
+   */
+  cloreGroupe() { this._dernierGroupe = null; },
 
   /**
    * Enregistre l'état *précédent* le changement. Appelé après coup par
    * Scenario.touch() : la référence retenue est celle d'avant la mutation.
    */
-  enregistrer() {
+  /**
+   * @param {string|null} groupe  identifiant du champ édité. Deux appels
+   *   consécutifs portant le même groupe, à moins d'une seconde d'écart,
+   *   partagent une seule entrée : sinon, annuler un titre de quinze
+   *   lettres demandait quinze annulations — chacune reconstruisant tout
+   *   l'éditeur.
+   */
+  enregistrer(groupe = null) {
     if (this._gele) return;
     const avant = this._reference;
     const apres = this._snapshot();
     if (avant === null || avant === apres) { this._reference = apres; return; }
+
+    const maintenant = Date.now();
+    const prolonge = groupe != null
+      && groupe === this._dernierGroupe
+      && maintenant - this._dernierInstant < this.FUSION_MS
+      && this._passe.length > 0;
+
+    this._dernierGroupe = groupe;
+    this._dernierInstant = maintenant;
+    this._reference = apres;
+
+    // On prolonge le groupe : l'état d'avant la première frappe est déjà
+    // en pile, il n'y a rien à empiler de plus.
+    if (prolonge) { this._notifier(); return; }
+
     this._passe.push(avant);
     if (this._passe.length > this.MAX) this._passe.shift();
     this._futur.length = 0;
-    this._reference = apres;
     this._notifier();
   },
 
@@ -1153,7 +1193,10 @@ const FormBuilder = {
    */
   _renderField(field, data, onChange) {
     const wrap = el('div', { class: 'field' });
-    if (field.label) wrap.appendChild(el('label', {}, field.label));
+    // Un <label> sans `for` ne sert à rien : ni clic pour donner le focus,
+    // ni annonce par un lecteur d'écran.
+    const id = `champ-${field.key.replace(/[^a-z0-9]+/gi, '-')}-${uid('f')}`;
+    if (field.label) wrap.appendChild(el('label', { for: id }, field.label));
     const value = this._get(data, field.key);
 
     let input;
@@ -1194,8 +1237,18 @@ const FormBuilder = {
       });
       input.value = value ?? '';
     }
+    // Sortir du champ clôt le groupe : la modification suivante s'annulera
+    // séparément, même si elle survient dans la seconde.
+    input.addEventListener('blur', () => History.cloreGroupe());
+    input.id = id;
+    if (field.hint) {
+      const aideId = id + '-aide';
+      input.setAttribute('aria-describedby', aideId);
+      wrap.appendChild(input);
+      wrap.appendChild(el('div', { class: 'field-hint', id: aideId }, field.hint));
+      return wrap;
+    }
     wrap.appendChild(input);
-    if (field.hint) wrap.appendChild(el('div', { class: 'field-hint' }, field.hint));
     return wrap;
   },
 
@@ -1306,8 +1359,10 @@ const Inspector = {
     // en place. Seuls les champs marqués `rerender` reconstruisent le
     // panneau, parce qu'ils changent la liste des champs affichés.
     const onChange = (key, value, field) => {
-      Editor.refreshNode(node.id);
-      Scenario.touch();
+      Editor.refreshNode(node.id, { route: key.startsWith('position.') });
+      // La clé du champ sert de groupe d'historique : taper un titre
+      // produit une entrée, pas une par lettre.
+      Scenario.touch(`${node.id}:${key}`);
       Scenario.emit('nodeUpdated', node);
       if (key === 'title' && this._headerTitleEl) {
         this._headerTitleEl.textContent = value || '';
@@ -1346,9 +1401,9 @@ const Inspector = {
       // On ne pré-crée pas `node.position` : FormBuilder le construit à
       // la première saisie. Un objet {lat:null,lng:null} serait truthy et
       // ferait compter le nœud comme positionné (cf. hasPosition).
-      posSection.appendChild(FormBuilder.render(posSchema, node, () => {
+      posSection.appendChild(FormBuilder.render(posSchema, node, (key) => {
         Editor.refreshNode(node.id);
-        Scenario.touch();
+        Scenario.touch(`${node.id}:${key}`);
       }));
 
       const centerBtn = el('button', { class: 'btn ghost small', onclick: () => Editor.centerOn(node.id) }, 'Centrer la carte');
@@ -1461,7 +1516,7 @@ const Inspector = {
 
       // Image
       const imgField = el('div', { class: 'field' });
-      imgField.appendChild(el('label', {}, 'Image'));
+      imgField.appendChild(el('label', { for: 'champ-media-image' }, 'Image'));
       const imgSel = el('select', {
         onchange: e => {
           if (e.target.value) node.media.image = e.target.value;
@@ -1476,6 +1531,7 @@ const Inspector = {
         if (node.media.image === a.id) opt.selected = true;
         imgSel.appendChild(opt);
       });
+      imgSel.id = 'champ-media-image';
       imgField.appendChild(imgSel);
       if (imageAssets.length === 0) {
         imgField.appendChild(el('div', { class: 'field-hint' }, 'Ajoute d\'abord des images via l\'onglet Assets.'));
@@ -1492,7 +1548,7 @@ const Inspector = {
 
       // Audio
       const audField = el('div', { class: 'field' });
-      audField.appendChild(el('label', {}, 'Audio'));
+      audField.appendChild(el('label', { for: 'champ-media-audio' }, 'Audio'));
       const audSel = el('select', {
         onchange: e => {
           if (e.target.value) node.media.audio = e.target.value;
@@ -1507,6 +1563,7 @@ const Inspector = {
         if (node.media.audio === a.id) opt.selected = true;
         audSel.appendChild(opt);
       });
+      audSel.id = 'champ-media-audio';
       audField.appendChild(audSel);
       if (audioAssets.length === 0) {
         audField.appendChild(el('div', { class: 'field-hint' }, 'Ajoute d\'abord des audios via l\'onglet Assets.'));
@@ -1620,7 +1677,10 @@ const Inspector = {
     // Les flags déjà employés ailleurs sont proposés : c'est là que se
     // jouent la plupart des fautes de frappe.
     const connus = allFlags(Scenario.current).filter(f => !liste.includes(f));
-    const input = el('input', { type: 'text', placeholder: 'nom du flag', list: `flags-${cle}` });
+    const input = el('input', {
+      type: 'text', placeholder: 'nom du flag', list: `flags-${cle}`,
+      id: `champ-ajout-${cle}`, 'aria-label': `Ajouter un flag — ${titre.toLowerCase()}`
+    });
     const datalist = el('datalist', { id: `flags-${cle}` });
     connus.forEach(f => datalist.appendChild(el('option', { value: f })));
 
@@ -1652,7 +1712,7 @@ const Inspector = {
     ));
 
     const onChange = (key, value) => {
-      Scenario.touch();
+      Scenario.touch(`meta:${key}`);
       Scenario.emit('metaUpdated');
       if (key === 'meta.title') headerTitle.textContent = value || '—';
     };
@@ -1678,7 +1738,7 @@ const Inspector = {
     const gameOpts = el('div', { class: 'inspector-section' });
     gameOpts.appendChild(el('h3', {}, 'Options de jeu'));
     const mapToggleWrap = el('div', { class: 'field' });
-    mapToggleWrap.appendChild(el('label', {}, 'Carte visible par les joueurs'));
+    mapToggleWrap.appendChild(el('label', { for: 'champ-carte-joueurs' }, 'Carte visible par les joueurs'));
     const mapToggleSel = el('select', {
       onchange: e => {
         scn.meta.showMapToPlayers = e.target.value === 'yes';
@@ -1688,6 +1748,7 @@ const Inspector = {
       el('option', { value: 'no' }, 'Non — carte masquée'),
       el('option', { value: 'yes' }, 'Oui — afficher la destination sur une mini-carte')
     );
+    mapToggleSel.id = 'champ-carte-joueurs';
     mapToggleSel.value = scn.meta.showMapToPlayers ? 'yes' : 'no';
     mapToggleWrap.appendChild(mapToggleSel);
     mapToggleWrap.appendChild(el('div', { class: 'field-hint' },
@@ -1709,7 +1770,8 @@ const Inspector = {
       select.appendChild(opt);
     });
     const fw = el('div', { class: 'field' });
-    fw.appendChild(el('label', {}, 'Nœud de départ'));
+    select.id = 'champ-depart';
+    fw.appendChild(el('label', { for: 'champ-depart' }, 'Nœud de départ'));
     fw.appendChild(select);
     startSection.appendChild(fw);
     frag.appendChild(startSection);
@@ -1764,7 +1826,7 @@ const Inspector = {
     // Sélecteur de fond de carte
     const providerId = scn.meta.tileProvider || DEFAULT_PROVIDER;
     const providerField = el('div', { class: 'field' });
-    providerField.appendChild(el('label', {}, 'Fond de carte'));
+    providerField.appendChild(el('label', { for: 'champ-fond-carte' }, 'Fond de carte'));
     const providerSelect = el('select', {
       onchange: e => Editor.setTileProvider(e.target.value)
     });
@@ -1773,6 +1835,7 @@ const Inspector = {
       if (id === providerId) opt.selected = true;
       providerSelect.appendChild(opt);
     });
+    providerSelect.id = 'champ-fond-carte';
     providerField.appendChild(providerSelect);
     providerField.appendChild(el('div', { class: 'field-hint' },
       'Les apps tierces ne peuvent pas utiliser tile.openstreetmap.org directement.'
@@ -2017,12 +2080,17 @@ const Editor = {
       </div>
       <div class="center" id="center">
         <div class="pane" id="pane-map">
-          <div class="pane-header"><span class="dot"></span>Carte <span class="count" id="map-count">0</span><span class="route-info" id="route-info"></span></div>
+          <div class="pane-header"><span class="dot" aria-hidden="true"></span>Carte
+            <span class="count" id="map-count" title="Nœuds positionnés sur la carte">0</span>
+            <span class="route-info" id="route-info" title="Longueur du chemin principal"></span>
+          </div>
           <div id="map"></div>
         </div>
         <div class="resizer" id="resizer"></div>
         <div class="pane" id="pane-graph">
-          <div class="pane-header"><span class="dot" style="background:var(--forest)"></span>Graphe <span class="count" id="graph-count">0</span></div>
+          <div class="pane-header"><span class="dot" style="background:var(--forest)" aria-hidden="true"></span>Graphe
+            <span class="count" id="graph-count" title="Nœuds du scénario">0</span>
+          </div>
           <div class="history-controls" id="history-controls">
             <button id="undo-btn" title="Annuler (Ctrl+Z)" aria-label="Annuler" disabled>↶</button>
             <button id="redo-btn" title="Rétablir (Ctrl+Maj+Z)" aria-label="Rétablir" disabled>↷</button>
@@ -2091,7 +2159,20 @@ const Editor = {
     // derrière lui et `load` rejouait N reconstructions.
     this._unsubscribe = Scenario.on((evt) => {
       if (evt === 'load') { this.rebuild(); return; }
-      if (['nodeAdded', 'nodeRemoved', 'linkAdded', 'linkRemoved', 'metaUpdated'].includes(evt)) {
+      // Le titre ou le pitch ne déplacent rien : redessiner le tracé à
+      // chaque frappe coûtait une reconstruction de toutes les polylignes.
+      // Seul le nœud de départ change la numérotation.
+      if (evt === 'metaUpdated') {
+        const depart = Scenario.current.meta.startNodeId;
+        if (depart !== this._departConnu) {
+          this._departConnu = depart;
+          this._ordre = graphOrder(Scenario.current);
+    this._departConnu = Scenario.current.meta.startNodeId;
+          this._refreshNumbers();
+        }
+        return;
+      }
+      if (['nodeAdded', 'nodeRemoved', 'linkAdded', 'linkRemoved'].includes(evt)) {
         this._ordre = graphOrder(Scenario.current);
         this._refreshNumbers();
         this.drawRoute();
@@ -2458,20 +2539,54 @@ const Editor = {
 
     // Re-ajouter liens (Drawflow)
     this._suppressConnectionEvent = true;
-    Scenario.current.links.forEach(l => {
-      const sid = this.drawflowIdByNodeId[l.source];
-      const tid = this.drawflowIdByNodeId[l.target];
-      if (sid && tid) {
-        try {
-          this.drawflow.addConnection(sid, tid, 'output_1', 'input_1');
-        } catch (e) { /* si déjà là */ }
-      }
-    });
+    this._addConnectionsBatched(Scenario.current.links);
     this._suppressConnectionEvent = false;
 
     this.drawRoute();
     this._updateCounts();
     Inspector.render();
+  },
+
+  /**
+   * Recrée toutes les connexions du graphe.
+   *
+   * `addConnection` insère un SVG puis recalcule aussitôt la géométrie des
+   * deux nœuds concernés, en lisant leurs `getBoundingClientRect()`. Comme
+   * une insertion DOM vient de se produire, chaque lecture force un
+   * recalcul de mise en page : sur un parcours de 150 nœuds, cette seule
+   * phase pesait 375 ms des 578 du rebuild.
+   *
+   * On diffère donc le calcul géométrique, puis on le fait en une passe,
+   * sans insertion entre les mesures.
+   */
+  _addConnectionsBatched(links) {
+    const df = this.drawflow;
+    const original = df.updateConnectionNodes;
+    if (typeof original !== 'function') return this._addConnectionsSimple(links);
+
+    let differe = true;
+    df.updateConnectionNodes = function (id) {
+      if (!differe) return original.call(this, id);
+    };
+    try {
+      this._addConnectionsSimple(links);
+    } finally {
+      differe = false;
+      df.updateConnectionNodes = original;
+    }
+    for (const dfId of Object.values(this.drawflowIdByNodeId)) {
+      try { df.updateConnectionNodes('node-' + dfId); } catch (e) { /* nœud disparu */ }
+    }
+  },
+
+  _addConnectionsSimple(links) {
+    for (const l of links) {
+      const sid = this.drawflowIdByNodeId[l.source];
+      const tid = this.drawflowIdByNodeId[l.target];
+      if (!sid || !tid) continue;
+      try { this.drawflow.addConnection(sid, tid, 'output_1', 'input_1'); }
+      catch (e) { /* déjà présente */ }
+    }
   },
 
   /**
@@ -2919,7 +3034,8 @@ const Modal = {
       const flagWrap = el('div', { class: 'field', style: { marginTop: '10px' } });
       const flagInput = el('input', { type: 'text', placeholder: 'nom du flag' });
       flagInput.value = link.condition?.value || '';
-      flagWrap.appendChild(el('label', {}, 'Nom du flag'));
+      flagInput.id = 'champ-nom-flag';
+      flagWrap.appendChild(el('label', { for: 'champ-nom-flag' }, 'Nom du flag'));
       flagWrap.appendChild(flagInput);
 
       const refreshFlagVisibility = () => {
@@ -2931,8 +3047,9 @@ const Modal = {
       modal.appendChild(el('p', { class: 'sub' },
         `${source?.title || '?'} → ${target?.title || '?'}`
       ));
+      select.id = 'champ-type-condition';
       modal.appendChild(el('div', { class: 'field' },
-        el('label', {}, 'Type de condition'),
+        el('label', { for: 'champ-type-condition' }, 'Type de condition'),
         select
       ));
       modal.appendChild(flagWrap);

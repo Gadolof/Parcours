@@ -16,7 +16,7 @@ en `.zip`, on le joue sur le terrain.
 | `manifest.json`, `icons/` | Installation sur l'écran d'accueil |
 | `vendor/` | Leaflet, Drawflow, JSZip, jsQR, qrcode-generator et les polices — **embarqués**, aucun CDN |
 | `test/core.test.js`, `test/graph.test.js` | Tests du noyau |
-| `test/browser/` | Suites de bout en bout pilotant Chromium |
+| `test/browser/` | Suites de bout en bout pilotant Chromium, dont une suite mobile et une suite de charge |
 
 `src/app.js` est un module ES : la page doit être servie en HTTP, pas ouverte
 en `file://`.
@@ -29,8 +29,10 @@ npm run test:browser # bout en bout — nécessite playwright-core et un Chromiu
 ```
 
 Les suites navigateur servent le dépôt tel quel et vérifient notamment que
-l'application démarre **hors ligne**, réseau coupé, et que les QR produits se
-relisent avec le décodeur qu'utilise le joueur.
+l'application démarre **hors ligne** réseau coupé, que les QR produits se
+relisent avec le décodeur qu'utilise le joueur, que l'interface tactile tient
+sur un écran de 390 px, et qu'un parcours de 120 étapes se reconstruit sous la
+seconde.
 
 ## Développement local
 
@@ -94,3 +96,6 @@ Deux limites à connaître :
 - Les suites navigateur ont montré un échec intermittent (une fois sur dix
   environ, non reproduit) qui ressemble à une contention de ressources. Les
   tests du noyau, eux, sont déterministes.
+- Le rebuild de l'éditeur reste le point coûteux sur les gros parcours
+  (~250 ms pour 120 étapes) : il diffère désormais le calcul géométrique des
+  connexions, mais Drawflow recalcule toujours nœud par nœud.

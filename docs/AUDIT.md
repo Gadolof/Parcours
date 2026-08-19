@@ -2,7 +2,7 @@
 
 > Revue complète de `index.html` (5 612 lignes : CSS + SPA vanilla JS) à l'état du commit `0fbb3e2`.
 >
-> **Mise à jour — les trois jalons sont livrés.** Les constats B1 à B7 sont corrigés, le code est
+> **Mise à jour — les trois jalons sont livrés, plus une passe charge et terrain.** Les constats B1 à B7 sont corrigés, le code est
 > découpé (`styles.css`, `src/core.js`, `src/app.js`) et le noyau est couvert par
 > 43 tests. La vérification en navigateur qui a suivi a invalidé la prémisse de B4
 > (voir ci-dessous) et fait apparaître trois défauts d'affichage que la lecture
@@ -19,7 +19,11 @@
 > décodeur embarqué le relit vide** — la vérification refuse désormais ces
 > valeurs (voir §01 ter).
 >
-> Couverture : 90 tests du noyau, 82 contrôles de bout en bout dans Chromium.
+> Une quatrième passe a mesuré la tenue en charge et exercé l'interface
+> tactile, jamais testée jusque-là : elle a trouvé cinq défauts de plus,
+> tous corrigés (§01 quater).
+>
+> Couverture : 90 tests du noyau, 114 contrôles de bout en bout dans Chromium.
 
 ---
 
@@ -223,6 +227,67 @@ Trois réponses, toutes livrées :
    le fait qu'un code devinable comme `eglise` n'en est pas un.
 3. Le test de bout en bout **encode puis redécode** chaque cas avec jsQR, pour
    que la régression se voie.
+
+## 1 quater. Charge et terrain
+
+Passe de mesure et d'usage tactile. Rien de tout cela ne se voit à la lecture,
+et une partie ne se voit qu'avec un profil mobile.
+
+### Ce que la mesure a démenti
+
+Je pensais que l'instantané JSON pris à chaque frappe pour l'historique serait
+le point coûteux. **Mesuré : 0,37 ms sur un parcours de 152 nœuds** — négligeable.
+Le vrai coût était ailleurs.
+
+### B15 — Une frappe de métadonnée redessinait tout le tracé
+
+L'éditeur réagissait à `metaUpdated` en recalculant l'ordre du graphe et en
+reconstruisant les 149 polylignes de la carte. Or le titre ou le pitch ne
+déplacent rien. **7,8 ms par caractère tapé**, pour rien, et une facture qui
+grandit avec le parcours. Seul un changement de nœud de départ justifie de
+renuméroter. Après correction : **0,7 ms**.
+
+### B16 — L'historique retenait chaque caractère
+
+Chaque frappe créait son entrée : annuler un titre de quinze lettres demandait
+quinze annulations, dont chacune reconstruisait l'éditeur entier. Quatre titres
+saisis suffisaient à évincer tout l'historique utile (60 entrées).
+
+Les modifications consécutives d'un même champ sont désormais fusionnées en une
+entrée, et quitter le champ clôt le groupe. Vérifié : **une entrée pour quinze
+frappes**, et une seule annulation efface le mot.
+
+### B17 — 375 ms passés à recalculer des mises en page
+
+Sur un parcours de 150 nœuds, la reconstruction prenait 578 ms, dont **375 dans
+la seule création des connexions**. `addConnection` insère un SVG puis relit
+aussitôt les rectangles des deux nœuds concernés : chaque lecture force un
+recalcul de mise en page, trois cents fois de suite.
+
+Le calcul géométrique est maintenant différé puis fait en une passe, sans
+insertion entre les mesures : **578 ms → 215 ms**. Un contrôle vérifie que
+chaque lien a bien un tracé non vide — c'est le risque qu'introduit cette
+optimisation.
+
+### B18 — Une règle CSS annulait la protection anti-zoom iOS
+
+La feuille posait `font-size: 16px` sur les champs tactiles pour empêcher iOS
+Safari de zoomer au focus… puis les champs de l'inspecteur étaient ramenés à
+13 px par une règle plus spécifique. Autrement dit, la protection ne s'appliquait
+nulle part où l'on saisit vraiment du texte — et depuis le retrait de
+`user-scalable=no`, le zoom se produit pour de bon.
+
+### B19 — Les messages volaient les taps destinés aux boutons
+
+Sur mobile, la bande des toasts s'étend bord à bord juste au-dessus des boutons
+flottants. Un message affiché rendait le bouton « + » inopérant pendant ses
+trois secondes de vie. Les toasts sont désormais transparents au pointeur ;
+seuls ceux qui portent une action le reprennent.
+
+*Deux défauts d'affichage tactile ont été corrigés au passage : l'attribution
+Leaflet passait au-dessus de la feuille d'inspecteur (même famille que B13,
+l'échelle des couches est maintenant complète), et la barre de navigation était
+coupée depuis l'ajout de l'entrée « Résultats ».*
 
 ## 2. Le trou principal : « hors ligne » n'existe pas — *résolu*
 
@@ -484,12 +549,18 @@ Génération des planches de QR (3.1), panneau de vérification (3.2), tracé et
 | 3.4 | `checkpoint` sans comportement propre | Faible | Faible | ✅ corrigé |
 | 3.6 | Progression trompeuse, rien pour l'organisateur | Faible | Moyen | ✅ corrigé |
 | B14 | QR accentué illisible par le scanner embarqué | Élevée | Faible | ✅ corrigé |
+| B15 | Frappe de métadonnée redessinant tout le tracé | Moyenne | Faible | ✅ corrigé |
+| B16 | Historique retenant chaque caractère | Moyenne | Faible | ✅ corrigé |
+| B17 | 375 ms de recalculs de mise en page au rebuild | Moyenne | Moyen | ✅ corrigé |
+| B18 | Anti-zoom iOS annulé par une règle plus spécifique | Moyenne | Faible | ✅ corrigé |
+| B19 | Les toasts bloquent les boutons flottants | Moyenne | Faible | ✅ corrigé |
 | §7 | Fichier unique, aucun test, aucun build | Structurelle | Progressif | ✅ découpé, testé |
 
 ---
 
 *Audit réalisé par lecture statique intégrale du source, puis vérifié dans
-Chromium : 90 tests du noyau et 82 contrôles de bout en bout, exécutables
+Chromium : 90 tests du noyau et 114 contrôles de bout en bout, exécutables
 contre le dépôt tel quel (`npm test`, `npm run test:browser`). C'est cette
 vérification qui a corrigé B4 et fait apparaître B11 à B14 — la lecture seule
-ne voit ni une grille CSS mal peuplée, ni un QR que le décodeur rend vide.*
+ne voit ni une grille CSS mal peuplée, ni un QR que le décodeur rend vide, ni
+un message qui vole le tap d'un bouton.*

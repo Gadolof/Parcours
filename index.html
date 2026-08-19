@@ -24,7 +24,9 @@
 <body>
 
 <div id="app"></div>
-<div class="toasts" id="toasts"></div>
+<!-- aria-live : les messages de succès et d'erreur sont invisibles
+     pour un lecteur d'écran sans cette annonce. -->
+<div class="toasts" id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
 
 <!-- Bibliothèques (locales) -->
 <script src="vendor/leaflet.js"></script>

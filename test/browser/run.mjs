@@ -6,7 +6,7 @@ import { dirname, resolve } from 'node:path';
 import { serve } from './serve.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const SUITES = ['jalon1.mjs', 'layout.mjs', 'offline.mjs', 'assets.mjs', 'jalon3.mjs'];
+const SUITES = ['jalon1.mjs', 'layout.mjs', 'offline.mjs', 'assets.mjs', 'jalon3.mjs', 'charge.mjs', 'mobile.mjs'];
 
 const { server, port } = await serve(ROOT);
 const BASE = `http://127.0.0.1:${port}/index.html`;

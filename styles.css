@@ -36,10 +36,13 @@
 
   /* Leaflet place ses panneaux de contrôle à z-index 1000 : tout ce qui
      doit passer par-dessus la carte se situe au-dessus de cette valeur. */
-  --z-drag:   800;
-  --z-modal:  1200;
-  --z-tuto:   1300;
-  --z-toast:  1400;
+  --z-drag:      800;
+  --z-flottant:  1050;  /* boutons flottants, bannière de placement */
+  --z-voile:     1090;  /* voile de l'inspecteur mobile */
+  --z-feuille:   1100;  /* inspecteur en feuille */
+  --z-modal:     1200;
+  --z-tuto:      1300;
+  --z-toast:     1400;
 }
 
 /* ===== Reset & base ===== */
@@ -910,7 +913,11 @@ input, textarea, select { font: inherit; color: inherit; }
   border-left: 3px solid var(--forest);
   animation: toast-in 220ms ease-out;
   max-width: 340px;
-  pointer-events: auto;
+  /* Un message ne doit pas voler le tap destiné à ce qu'il recouvre : sur
+     mobile la bande des toasts passe juste au-dessus des boutons flottants,
+     qui devenaient inutilisables pendant les trois secondes d'affichage.
+     Seuls les toasts porteurs d'une action reprennent le pointeur. */
+  pointer-events: none;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -938,6 +945,7 @@ input, textarea, select { font: inherit; color: inherit; }
 /* Toast porteur d'une action (mise à jour disponible) : il ne disparaît
    pas tout seul, l'utilisateur choisit le moment. */
 .toast.with-action {
+  pointer-events: auto;
   align-items: center;
   gap: 10px;
   padding-right: 8px;
@@ -1762,7 +1770,7 @@ textarea.big-input {
   flex-direction: column;
   gap: 10px;
   align-items: center;
-  z-index: 500;
+  z-index: var(--z-flottant);
 }
 .fab {
   width: 58px; height: 58px;
@@ -1898,7 +1906,7 @@ textarea.big-input {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-weight: 600;
-  z-index: 700;
+  z-index: var(--z-flottant);
   box-shadow: 0 6px 20px rgba(176,97,58,.4);
   animation: banner-in 280ms cubic-bezier(0.4, 1.5, 0.6, 1);
   display: flex;
@@ -2021,7 +2029,7 @@ body.placing #graph {
     border-left: none;
     border-top: 1px solid var(--line);
     border-radius: 14px 14px 0 0;
-    z-index: 550;
+    z-index: var(--z-feuille);
     transform: translateY(calc(100% + 20px));
     transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1);
     box-shadow: 0 -8px 28px rgba(42,37,32,.18);
@@ -2047,7 +2055,7 @@ body.placing #graph {
     top: 0; left: 0; right: 0; bottom: 0;
     background: rgba(42,37,32,.35);
     backdrop-filter: blur(1px);
-    z-index: 540;
+    z-index: var(--z-voile);
     opacity: 0;
     pointer-events: none;
     transition: opacity 220ms;
@@ -2102,6 +2110,14 @@ body.placing #graph {
   }
 }
 
+/* Quatre entrées de navigation sur un écran de téléphone : on resserre
+   plutôt que de laisser le dernier libellé se faire couper. */
+@media (max-width: 480px) {
+  .topbar { gap: 4px; padding-left: calc(10px + env(safe-area-inset-left)); padding-right: calc(10px + env(safe-area-inset-right)); }
+  .brand { font-size: 16px; }
+  .nav a { padding: 6px 7px; font-size: 9.5px; letter-spacing: 0.04em; }
+}
+
 /* Très petits écrans */
 @media (max-width: 400px) {
   .home-hero h1 { font-size: 28px; }
@@ -2114,14 +2130,22 @@ body.placing #graph {
   .picker-grid { grid-template-columns: 1fr; }
 }
 
-/* Inputs : iOS zoom prevention */
+/* Au doigt, tout champ fait 16 px : en dessous, iOS Safari zoome la page
+   au focus. La règle qui suivait redescendait les champs de l'inspecteur à
+   14 px — c'est-à-dire précisément ceux qu'on remplit le plus, et donc
+   exactement le zoom qu'on cherchait à éviter. On assume la densité
+   moindre : sur le terrain, une page qui saute à chaque tap coûte plus. */
 @media (hover: none) and (pointer: coarse) {
   input, select, textarea { font-size: 16px; }
+  /* Mêmes sélecteurs que la règle de base : `.field input[type="text"]`
+     l'emporte sur `.field input`, media query ou pas. */
   .field input[type="text"],
   .field input[type="number"],
   .field input[type="email"],
   .field textarea,
-  .field select { font-size: 14px; }
+  .field select { font-size: 16px; }
+  /* La densité est rendue par les marges, pas par le corps du texte. */
+  .field { margin-bottom: 12px; }
 }
 
 /* Le graphe est focusable pour que la suppression au clavier fonctionne

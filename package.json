@@ -1,6 +1,6 @@
 {
   "name": "parcours",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "description": "Éditeur et moteur de jeu pour courses d'orientation et escape games outdoor.",
