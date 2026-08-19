@@ -1,7 +1,12 @@
 # Parcours — audit technique et axes d'amélioration
 
 > Revue complète de `index.html` (5 612 lignes : CSS + SPA vanilla JS) à l'état du commit `0fbb3e2`.
-> Aucune modification de code n'a été faite : ce document est un état des lieux et une proposition de trajectoire.
+>
+> **Mise à jour — jalon 1 livré.** Les constats B1 à B7 sont corrigés, le code est
+> découpé (`styles.css`, `src/core.js`, `src/app.js`) et le noyau est couvert par
+> 43 tests. La vérification en navigateur qui a suivi a invalidé la prémisse de B4
+> (voir ci-dessous) et fait apparaître trois défauts d'affichage que la lecture
+> statique n'avait pas vus : ils sont ajoutés en §01 bis et corrigés.
 
 ---
 
@@ -60,9 +65,24 @@ Concrètement : renommer un nœud ou saisir le pitch du scénario est impossible
 
 Corollaire de B1 : chaque aller-retour accueil ↔ éditeur ajoute un abonné à `Scenario.listeners`. Après cinq navigations, un `load` déclenche cinq `rebuild()` successifs — reconstruction complète de la carte et du graphe, cinq fois. Même chose pour les compteurs `_updateCounts()`, qui plantent (`$('#map-count')` → `null`) si un événement arrive alors qu'on n'est plus dans l'éditeur.
 
-### B4 — Suppression clavier dans le graphe : le nœud « revient »
+### B4 — La suppression au clavier ne fonctionnait pas du tout
 
-Drawflow lie un handler `keydown` global et supprime le nœud sélectionné sur <kbd>Suppr</kbd> — c'est d'ailleurs le mécanisme que le tutoriel enseigne pour les liens. Le handler `nodeRemoved` du projet en tire les conséquences… à moitié :
+> **Correction du constat initial.** J'avais écrit que <kbd>Suppr</kbd> supprimait le
+> nœud du graphe sans le retirer du scénario. La vérification dans Chromium montre
+> autre chose : Drawflow attache son handler `keydown` à **son conteneur**
+> (`container.addEventListener('keydown', …)`), pas au document. Or `#graph`
+> n'avait pas de `tabindex` : il ne pouvait jamais recevoir le focus, donc la touche
+> n'atteignait jamais Drawflow. Le geste enseigné par le tutoriel *et* par la
+> palette — « clique sur le lien, puis <kbd>Suppr</kbd> » — était **inerte**.
+> Drawflow ignore par ailleurs déjà la touche quand la saisie vient d'un `INPUT`
+> ou d'un `TEXTAREA`, donc le risque d'effacement accidentel n'existait pas non plus.
+>
+> Le correctif rend `#graph` focusable (et lui donne le focus au clic), ce qui fait
+> enfin marcher le geste documenté — et c'est *à partir de là* que la désynchronisation
+> décrite ci-dessous devient réelle. Le câblage `nodeRemoved` → suppression dans le
+> scénario est donc nécessaire, mais pour une raison différente de celle annoncée.
+
+Le handler `nodeRemoved` du projet ne tirait les conséquences d'une suppression qu'à moitié :
 
 ```js
 this.drawflow.on('nodeRemoved', dfId => {
@@ -130,6 +150,41 @@ Si l'autosave debouncé (800 ms) se déclenche pendant la fenêtre, `Library.put
 `_addToMap` calcule le numéro affiché avec `Scenario.current.nodes.indexOf(node) + 1`, c'est-à-dire la position dans le tableau. Après une suppression, tous les marqueurs suivants portent un numéro faux jusqu'au prochain `rebuild()`. Et surtout, ce numéro **ne correspond pas à l'ordre de parcours** — il ne veut rien dire pour l'auteur. Le numéro devrait venir d'un parcours du graphe depuis le nœud de départ (voir §3).
 
 ---
+
+## 1 bis. Ce que la lecture du source ne pouvait pas montrer
+
+Trois défauts d'affichage, tous corrigés, qu'une revue statique manque par construction — il fallait ouvrir la page.
+
+### B11 — L'inspecteur était inutilisable sur desktop
+
+`.view-editor` est une grille `200px 1fr 320px`. Ses enfants sont, dans l'ordre :
+`.palette`, `.center`, `.inspector-backdrop`, `.inspector`. Le backdrop n'a de
+règle **que** dans la media query mobile : sur desktop il restait un élément de
+flux normal et s'emparait de la troisième colonne. L'inspecteur basculait alors
+à la ligne 2, par-dessus la palette, tronqué et à moitié hors écran — état
+reproduit à l'identique sur le commit d'origine, donc présent depuis toujours.
+
+Une déclaration manquait : `.inspector-backdrop { display: none; }` hors mobile.
+C'est le défaut le plus visible de tout cet audit, et le moins coûteux à réparer.
+
+### B12 — La bulle du tutoriel sortait de l'écran sur mobile
+
+La media query fixe `left: 16px !important` et une largeur pleine, mais
+`_positionBubble()` applique `transform: translate(-50%, -50%)` pour le centrage.
+Le `!important` gagnait sur `left`, pas sur le `transform` : la bulle était
+décalée d'une demi-largeur vers la gauche et amputée. C'est le tout premier
+écran que voit un nouvel utilisateur sur téléphone.
+
+### B13 — Les couches passaient sous la carte
+
+Leaflet place ses panneaux de contrôle à `z-index: 1000`. Or `--z-modal` valait
+`900` et l'overlay du tutoriel `950` : l'attribution et les boutons de zoom
+passaient **au-dessus** des modales et du tutoriel. L'échelle est réordonnée
+au-dessus de 1000 (`--z-modal: 1200`, `--z-tuto: 1300`, `--z-toast: 1400`).
+
+Dans la même famille : la feuille de Drawflow repeint le nœud sélectionné en
+rouge vif (`background: red`), ce que la règle du projet ne surchargeait pas —
+chaque clic sur un nœud produisait un aplat criard au milieu du carnet.
 
 ## 2. Le trou principal : « hors ligne » n'existe pas
 
@@ -349,30 +404,37 @@ Génération des planches de QR (3.1), panneau de vérification (3.2), tracé et
 
 ## 9. Récapitulatif
 
-| # | Point | Gravité | Effort |
-|---|-------|---------|--------|
-| B1 | Import ZIP depuis l'accueil cassé + message trompeur | Bloquant | Faible |
-| B2 | Perte de focus à chaque frappe dans l'inspecteur | Bloquant | Faible |
-| §2 | Aucun support hors ligne réel (ni SW, ni manifest, CDN) | Bloquant | Moyen |
-| B6 | Mauvaise réponse = avance, ou fin de partie silencieuse | Élevée | Faible |
-| B4 | Désynchronisation graphe/données sur Suppr | Élevée | Faible |
-| B3 | Fuite de listeners entre navigations | Élevée | Faible |
-| 4.1 | Assets en dataURL réécrits à chaque autosave | Élevée | Moyen |
-| B5 | Flags : fonctionnalité morte exposée dans l'UI | Élevée | Faible |
-| 4.3 | `getAll('tiles')` pour compter (100 Mo en RAM) | Élevée | Faible |
-| 5.1 / 5.2 | ZIP non validé, XSS via `node.type` | Élevée | Moyen |
-| 3.1 | Pas de génération de QR codes | Élevée (produit) | Moyen |
-| B8 | Object URLs de tuiles jamais révoqués | Moyenne | Faible |
-| 4.2 | Autosave complet à chaque panoramique | Moyenne | Faible |
-| 4.5 | Scan QR pleine résolution à 60 fps | Moyenne | Faible |
-| B7 | Position fantôme créée par l'inspecteur | Moyenne | Faible |
-| §6 | Contrastes < AA, zoom désactivé, `confirm()` natifs | Moyenne | Faible |
-| 3.2 | Pas de vérification du parcours avant export | Moyenne (produit) | Moyen |
-| 3.5 | Parcours non tracé sur la carte | Moyenne (produit) | Moyen |
-| 3.3 | Pas d'annuler/rétablir | Moyenne (produit) | Moyen |
-| B9 / B10 | Race à l'export bibliothèque, numérotation marqueurs | Faible | Faible |
-| §7 | Fichier unique, aucun test, aucun build | Structurelle | Progressif |
+| # | Point | Gravité | Effort | État |
+|---|-------|---------|--------|------|
+| B1 | Import ZIP depuis l'accueil cassé + message trompeur | Bloquant | Faible | ✅ corrigé |
+| B2 | Perte de focus à chaque frappe dans l'inspecteur | Bloquant | Faible | ✅ corrigé |
+| §2 | Aucun support hors ligne réel (ni SW, ni manifest, CDN) | Bloquant | Moyen | ⏳ jalon 2 |
+| B6 | Mauvaise réponse = avance, ou fin de partie silencieuse | Élevée | Faible | ✅ corrigé |
+| B4 | Désynchronisation graphe/données sur Suppr | Élevée | Faible | ✅ corrigé |
+| B3 | Fuite de listeners entre navigations | Élevée | Faible | ✅ corrigé |
+| 4.1 | Assets en dataURL réécrits à chaque autosave | Élevée | Moyen | ⏳ jalon 2 |
+| B5 | Flags : fonctionnalité morte exposée dans l'UI | Élevée | Faible | ⏳ jalon 3 |
+| 4.3 | `getAll('tiles')` pour compter (100 Mo en RAM) | Élevée | Faible | ⏳ jalon 2 |
+| 5.1 / 5.2 | ZIP non validé, XSS via `node.type` | Élevée | Moyen | ✅ corrigé |
+| 3.1 | Pas de génération de QR codes | Élevée (produit) | Moyen | ⏳ jalon 3 |
+| B8 | Object URLs de tuiles jamais révoqués | Moyenne | Faible | ⏳ jalon 2 |
+| 4.2 | Autosave complet à chaque panoramique | Moyenne | Faible | ✅ corrigé |
+| 4.5 | Scan QR pleine résolution à 60 fps | Moyenne | Faible | ⏳ jalon 2 |
+| B7 | Position fantôme créée par l'inspecteur | Moyenne | Faible | ✅ corrigé |
+| §6 | Contrastes < AA, zoom désactivé, `confirm()` natifs | Moyenne | Faible | ◐ zoom rétabli |
+| 3.2 | Pas de vérification du parcours avant export | Moyenne (produit) | Moyen | ⏳ jalon 3 |
+| 3.5 | Parcours non tracé sur la carte | Moyenne (produit) | Moyen | ⏳ jalon 3 |
+| 3.3 | Pas d'annuler/rétablir | Moyenne (produit) | Moyen | ⏳ jalon 3 |
+| B9 | Race à l'export depuis la bibliothèque | Faible | Faible | ✅ corrigé |
+| B10 | Numérotation des marqueurs sans signification | Faible | Faible | ⏳ jalon 3 |
+| B11 | Inspecteur hors écran sur desktop | Bloquant | Faible | ✅ corrigé |
+| B12 | Bulle du tutoriel amputée sur mobile | Élevée | Faible | ✅ corrigé |
+| B13 | Modales et tutoriel sous les contrôles Leaflet | Moyenne | Faible | ✅ corrigé |
+| §7 | Fichier unique, aucun test, aucun build | Structurelle | Progressif | ◐ découpé, testé |
 
 ---
 
-*Audit réalisé par lecture statique intégrale du source. Les comportements liés au clavier de Drawflow (B4) et au rendu mobile réel méritent une vérification en navigateur — l'environnement de revue n'avait pas accès au réseau pour charger les dépendances CDN.*
+*Audit réalisé par lecture statique intégrale du source, puis vérifié dans Chromium
+(dépendances servies localement, 19 contrôles de bout en bout). C'est cette
+vérification qui a corrigé B4 et fait apparaître B11 à B13 : la lecture seule ne
+voit pas une grille CSS mal peuplée.*
