@@ -1,0 +1,19 @@
+{
+  "name": "Parcours — éditeur & moteur de jeu",
+  "short_name": "Parcours",
+  "description": "Concevoir des courses d'orientation et des escape games outdoor, puis les jouer hors ligne sur le terrain.",
+  "lang": "fr",
+  "dir": "ltr",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4ecdf",
+  "theme_color": "#f4ecdf",
+  "categories": ["navigation", "sports", "education"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

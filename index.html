@@ -10,18 +10,15 @@
 <meta name="mobile-web-app-capable" content="yes">
 <title>Parcours — Éditeur & Moteur de jeu</title>
 
-<!-- Leaflet -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<!-- Drawflow -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow@0.0.60/dist/drawflow.min.css">
-
-<!-- Fonts -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-
-<!-- Feuille de style de l'application -->
+<!-- Dépendances embarquées : aucune requête réseau au chargement. -->
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="vendor/drawflow.min.css">
+<link rel="stylesheet" href="vendor/fonts.css">
 <link rel="stylesheet" href="styles.css">
+
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 
 </head>
 <body>
@@ -29,11 +26,11 @@
 <div id="app"></div>
 <div class="toasts" id="toasts"></div>
 
-<!-- CDN scripts -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow@0.0.60/dist/drawflow.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<!-- Bibliothèques (locales) -->
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/drawflow.min.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script src="vendor/jsQR.js"></script>
 
 
 <script type="module" src="src/app.js"></script>

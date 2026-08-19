@@ -2,11 +2,16 @@
 
 > Revue complète de `index.html` (5 612 lignes : CSS + SPA vanilla JS) à l'état du commit `0fbb3e2`.
 >
-> **Mise à jour — jalon 1 livré.** Les constats B1 à B7 sont corrigés, le code est
+> **Mise à jour — jalons 1 et 2 livrés.** Les constats B1 à B7 sont corrigés, le code est
 > découpé (`styles.css`, `src/core.js`, `src/app.js`) et le noyau est couvert par
 > 43 tests. La vérification en navigateur qui a suivi a invalidé la prémisse de B4
 > (voir ci-dessous) et fait apparaître trois défauts d'affichage que la lecture
 > statique n'avait pas vus : ils sont ajoutés en §01 bis et corrigés.
+>
+> Le jalon 2 rend la promesse hors ligne réelle : dépendances embarquées,
+> service worker, manifest, médias en Blob, index sur les tuiles. Vérifié
+> réseau coupé — 46 contrôles de bout en bout dans Chromium, en plus des
+> 43 tests du noyau.
 
 ---
 
@@ -186,9 +191,21 @@ Dans la même famille : la feuille de Drawflow repeint le nœud sélectionné en
 rouge vif (`background: red`), ce que la règle du projet ne surchargeait pas —
 chaque clic sur un nœud produisait un aplat criard au milieu du carnet.
 
-## 2. Le trou principal : « hors ligne » n'existe pas
+## 2. Le trou principal : « hors ligne » n'existe pas — *résolu*
 
-C'est la promesse répétée partout — accueil (« lance-les hors ligne sur le terrain »), tutoriel (« ils pourront jouer hors ligne »), tout le sous-système `TileCache`. Or :
+> **Livré.** Les quatre bibliothèques et les polices sont désormais dans
+> `vendor/`, un service worker précache la coquille (30 entrées), un manifest
+> permet l'installation, et `navigator.storage.persist()` est demandé au
+> démarrage. Le test de bout en bout coupe le réseau, recharge la page et
+> vérifie que l'application démarre, que les quatre bibliothèques sont là,
+> que la feuille de style s'applique et que l'éditeur reste utilisable.
+>
+> Une réserve à retenir : **`VERSION` dans `sw.js` doit être incrémentée à
+> chaque déploiement**, sans quoi les installations existantes gardent
+> l'ancienne version. Une bannière propose le rechargement quand une mise à
+> jour est prête.
+
+Le constat initial :
 
 - il n'y a **ni `manifest.json` ni service worker** ;
 - l'application charge **quatre scripts CDN** (Leaflet, Drawflow, JSZip, jsQR), **deux feuilles CSS CDN** et **Google Fonts** ;
@@ -362,8 +379,8 @@ Un handler vide. Avec un debounce de 800 ms, fermer l'onglet juste après une mo
 
 ## 6. Accessibilité et confort mobile
 
-- **`maximum-scale=1, user-scalable=no`** dans le viewport : le zoom par pincement est désactivé sur toute l'application. Sur une application de terrain, avec une carte, potentiellement pour des utilisateurs presbytes, c'est doublement pénalisant — et c'est ignoré par Safari iOS depuis longtemps, donc le bénéfice escompté n'existe même pas. À retirer ; le `font-size: 16px` déjà présent sur les inputs suffit à empêcher le zoom automatique iOS.
-- **Contrastes insuffisants.** `--ink-faint` (#8a7f70) sur `--paper` (#f4ecdf) donne **3,35:1**, `--rust` donne **3,88:1** — sous le seuil WCAG AA de 4,5:1 pour du texte normal. Or ces couleurs sont majoritairement utilisées à 10–12 px, en majuscules espacées, pour les métadonnées. En plein soleil sur un téléphone, c'est illisible. Assombrir `--ink-faint` vers ~#6f6455 réglerait la plupart des occurrences.
+- **`maximum-scale=1, user-scalable=no`** *(corrigé)* dans le viewport : le zoom par pincement est désactivé sur toute l'application. Sur une application de terrain, avec une carte, potentiellement pour des utilisateurs presbytes, c'est doublement pénalisant — et c'est ignoré par Safari iOS depuis longtemps, donc le bénéfice escompté n'existe même pas. À retirer ; le `font-size: 16px` déjà présent sur les inputs suffit à empêcher le zoom automatique iOS.
+- **Contrastes insuffisants.** *(corrigé)* `--ink-faint` (#8a7f70) sur `--paper` (#f4ecdf) donnait **3,35:1**, `--rust` **3,88:1** — sous le seuil WCAG AA de 4,5:1. Or ces couleurs portent presque toutes les métadonnées, à 10–12 px. `--ink-faint` passe à `#615748` (6,04 / 5,47 / 4,84 sur les trois fonds papier) et un token dédié `--rust-text: #8d4926` (5,75 / 5,21 / 4,61) prend le petit texte accentué ; `--rust` reste l'accent de marque pour les aplats et les grands italiques, où le seuil est de 3:1.
 - **`confirm()` et `alert()` natifs** pour toutes les confirmations destructrices (suppression de nœud, de lien, d'asset, vidage du cache, reset). Cela casse le design, bloque le thread, et est ignoré dans certains contextes embarqués. `Modal` existe déjà : il suffit d'y ajouter un `Modal.confirm()`.
 - **Modales sans piège de focus, sans <kbd>Échap</kbd>, sans `role="dialog"` / `aria-modal`.** Navigation au clavier impossible.
 - **`#app { height: 100vh }`** alors que les media queries mobiles utilisent `100dvh`. Sur iOS/Android avec barre d'outils rétractable, le fond de l'éditeur passe sous la chrome du navigateur. Uniformiser sur `100dvh` avec repli `100vh`.
@@ -408,20 +425,21 @@ Génération des planches de QR (3.1), panneau de vérification (3.2), tracé et
 |---|-------|---------|--------|------|
 | B1 | Import ZIP depuis l'accueil cassé + message trompeur | Bloquant | Faible | ✅ corrigé |
 | B2 | Perte de focus à chaque frappe dans l'inspecteur | Bloquant | Faible | ✅ corrigé |
-| §2 | Aucun support hors ligne réel (ni SW, ni manifest, CDN) | Bloquant | Moyen | ⏳ jalon 2 |
+| §2 | Aucun support hors ligne réel (ni SW, ni manifest, CDN) | Bloquant | Moyen | ✅ corrigé |
 | B6 | Mauvaise réponse = avance, ou fin de partie silencieuse | Élevée | Faible | ✅ corrigé |
 | B4 | Désynchronisation graphe/données sur Suppr | Élevée | Faible | ✅ corrigé |
 | B3 | Fuite de listeners entre navigations | Élevée | Faible | ✅ corrigé |
-| 4.1 | Assets en dataURL réécrits à chaque autosave | Élevée | Moyen | ⏳ jalon 2 |
+| 4.1 | Assets en dataURL réécrits à chaque autosave | Élevée | Moyen | ✅ corrigé |
 | B5 | Flags : fonctionnalité morte exposée dans l'UI | Élevée | Faible | ⏳ jalon 3 |
-| 4.3 | `getAll('tiles')` pour compter (100 Mo en RAM) | Élevée | Faible | ⏳ jalon 2 |
+| 4.3 | `getAll('tiles')` pour compter (100 Mo en RAM) | Élevée | Faible | ✅ corrigé |
 | 5.1 / 5.2 | ZIP non validé, XSS via `node.type` | Élevée | Moyen | ✅ corrigé |
 | 3.1 | Pas de génération de QR codes | Élevée (produit) | Moyen | ⏳ jalon 3 |
-| B8 | Object URLs de tuiles jamais révoqués | Moyenne | Faible | ⏳ jalon 2 |
+| B8 | Object URLs de tuiles jamais révoqués | Moyenne | Faible | ✅ corrigé |
 | 4.2 | Autosave complet à chaque panoramique | Moyenne | Faible | ✅ corrigé |
-| 4.5 | Scan QR pleine résolution à 60 fps | Moyenne | Faible | ⏳ jalon 2 |
+| 4.5 | Scan QR pleine résolution à 60 fps | Moyenne | Faible | ✅ corrigé |
 | B7 | Position fantôme créée par l'inspecteur | Moyenne | Faible | ✅ corrigé |
-| §6 | Contrastes < AA, zoom désactivé, `confirm()` natifs | Moyenne | Faible | ◐ zoom rétabli |
+| §6 | Contrastes < AA, zoom désactivé | Moyenne | Faible | ✅ corrigé |
+| §6 | `confirm()` natifs, modales sans piège de focus | Moyenne | Faible | ⏳ jalon 3 |
 | 3.2 | Pas de vérification du parcours avant export | Moyenne (produit) | Moyen | ⏳ jalon 3 |
 | 3.5 | Parcours non tracé sur la carte | Moyenne (produit) | Moyen | ⏳ jalon 3 |
 | 3.3 | Pas d'annuler/rétablir | Moyenne (produit) | Moyen | ⏳ jalon 3 |

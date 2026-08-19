@@ -9,9 +9,15 @@
   --paper-3:     #e3d4b5;
   --ink:         #2a2520;
   --ink-soft:    #5a4f42;
-  --ink-faint:   #8a7f70;
+  /* #8a7f70 tombait à 3,35:1 sur le papier — sous le seuil AA, alors que
+     ce ton porte presque toutes les métadonnées, en 10-12 px. Illisible
+     en plein soleil, c'est-à-dire dans la situation d'usage. */
+  --ink-faint:   #615748;
   --rust:        #b0613a;
   --rust-dark:   #8a4620;
+  /* Accent pour le petit texte : --rust (3,88:1) ne passe qu'en grandes
+     tailles, où le seuil est de 3:1. */
+  --rust-text:   #8d4926;
   --rust-soft:   #d4926e;
   --forest:      #4a6b3d;
   --forest-dark: #344e2a;
@@ -214,7 +220,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .home-card .num {
   font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--rust);
+  color: var(--rust-text);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   margin-bottom: 8px;
@@ -929,6 +935,39 @@ input, textarea, select { font: inherit; color: inherit; }
   to { transform: translateX(40px); opacity: 0; }
 }
 
+/* Toast porteur d'une action (mise à jour disponible) : il ne disparaît
+   pas tout seul, l'utilisateur choisit le moment. */
+.toast.with-action {
+  align-items: center;
+  gap: 10px;
+  padding-right: 8px;
+}
+.toast-action {
+  background: var(--rust);
+  color: var(--paper);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 5px 11px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.toast-action:hover { background: var(--rust-dark); }
+.toast-close {
+  background: none;
+  border: none;
+  color: var(--ink-faint);
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px 6px;
+  flex-shrink: 0;
+}
+.toast-close:hover { color: var(--ink); }
+
 /* ===== Modal (dialogues de condition de lien) ===== */
 .modal-backdrop {
   position: fixed;
@@ -1341,7 +1380,7 @@ textarea.big-input {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.18em;
-  color: var(--rust);
+  color: var(--rust-text);
   margin-bottom: 10px;
 }
 .play-start-card h1 {
@@ -1464,7 +1503,7 @@ textarea.big-input {
   font-size: 11px;
 }
 .recap-row .attempts {
-  color: var(--rust);
+  color: var(--rust-text);
   font-family: var(--font-mono);
   font-size: 11px;
   margin-left: 6px;
@@ -1540,7 +1579,7 @@ textarea.big-input {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.15em;
-  color: var(--rust);
+  color: var(--rust-text);
   margin-bottom: 8px;
   font-weight: 600;
 }
@@ -2090,3 +2129,35 @@ body.placing #graph {
    qu'au parcours clavier, pas à chaque clic dans le canvas. */
 #graph:focus { outline: none; }
 #graph:focus-visible { outline: 2px solid var(--rust); outline-offset: -2px; }
+
+/* Bouton torche du scanner QR (si l'appareil l'expose) */
+.qr-torch {
+  position: absolute;
+  bottom: 10px; right: 10px;
+  z-index: 2;
+  background: rgba(244,236,223,.92);
+}
+.qr-torch.active { background: var(--rust); color: var(--paper); border-color: var(--rust-dark); }
+
+/* Jauge de quota de stockage */
+.storage-stats {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-bottom: 10px;
+  line-height: 1.6;
+}
+.quota-bar {
+  display: block;
+  height: 4px;
+  background: var(--paper-3);
+  border-radius: 2px;
+  margin-top: 5px;
+  overflow: hidden;
+}
+.quota-bar span {
+  display: block;
+  height: 100%;
+  background: var(--forest);
+  transition: width 300ms;
+}

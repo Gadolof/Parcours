@@ -43,7 +43,7 @@ const IDB = {
   _db: null,
   _promise: null,
   DB_NAME: 'parcours',
-  DB_VERSION: 1,
+  DB_VERSION: 2,
 
   open() {
     if (this._db) return Promise.resolve(this._db);
@@ -54,11 +54,28 @@ const IDB = {
       req.onsuccess = () => { this._db = req.result; resolve(this._db); };
       req.onupgradeneeded = e => {
         const db = e.target.result;
+        const tx = e.target.transaction;
+
         if (!db.objectStoreNames.contains('scenarios')) {
           db.createObjectStore('scenarios', { keyPath: 'id' });
         }
-        if (!db.objectStoreNames.contains('tiles')) {
-          db.createObjectStore('tiles', { keyPath: 'key' });
+
+        const tiles = db.objectStoreNames.contains('tiles')
+          ? tx.objectStore('tiles')
+          : db.createObjectStore('tiles', { keyPath: 'key' });
+        // v2 : sans cet index, compter les tuiles d'un fond exigeait de
+        // charger tous les blobs en mémoire — une centaine de Mo pour
+        // obtenir un entier. Les enregistrements portent déjà `provider`.
+        if (!tiles.indexNames.contains('provider')) {
+          tiles.createIndex('provider', 'provider', { unique: false });
+        }
+
+        // v2 : les médias quittent le document du scénario. En base64
+        // dans le même enregistrement, chaque autosave réécrivait
+        // l'intégralité des images.
+        if (!db.objectStoreNames.contains('assets')) {
+          const assets = db.createObjectStore('assets', { keyPath: 'id' });
+          assets.createIndex('scenarioId', 'scenarioId', { unique: false });
         }
       };
     });
@@ -82,7 +99,31 @@ const IDB = {
   async delete(store, key)    { return this._req((await this._store(store, 'readwrite')).delete(key)); },
   async getAll(store)         { return this._req((await this._store(store)).getAll()); },
   async count(store)          { return this._req((await this._store(store)).count()); },
-  async clear(store)          { return this._req((await this._store(store, 'readwrite')).clear()); }
+  async clear(store)          { return this._req((await this._store(store, 'readwrite')).clear()); },
+
+  /** Nombre d'enregistrements pour une valeur d'index — sans les charger. */
+  async countByIndex(store, index, value) {
+    const os = await this._store(store);
+    return this._req(os.index(index).count(IDBKeyRange.only(value)));
+  },
+
+  /** Clés primaires pour une valeur d'index — sans charger les blobs. */
+  async keysByIndex(store, index, value) {
+    const os = await this._store(store);
+    return this._req(os.index(index).getAllKeys(IDBKeyRange.only(value)));
+  },
+
+  async deleteMany(store, keys) {
+    if (!keys.length) return 0;
+    const db = await this.open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction(store, 'readwrite');
+      const os = tx.objectStore(store);
+      keys.forEach(k => os.delete(k));
+      tx.oncomplete = () => res(keys.length);
+      tx.onerror = () => rej(tx.error);
+    });
+  }
 };
 
 // ============================================================
@@ -108,6 +149,99 @@ const Library = {
   async put(scenario) { return IDB.put('scenarios', scenario); },
   async get(id)       { return IDB.get('scenarios', id); },
   async delete(id)    { return IDB.delete('scenarios', id); }
+};
+
+// ============================================================
+// AssetStore — médias binaires, hors du document du scénario
+// ============================================================
+const AssetStore = {
+  _urls: new Map(), // assetId -> object URL, révoqués au changement de scénario
+
+  async put(scenarioId, asset, blob) {
+    await IDB.put('assets', {
+      id: asset.id,
+      scenarioId,
+      name: asset.name,
+      type: asset.type,
+      size: blob.size,
+      blob
+    });
+  },
+
+  async getBlob(id) {
+    const row = await IDB.get('assets', id);
+    return row?.blob || null;
+  },
+
+  /**
+   * URL utilisable dans un `src`. Le résultat est mémorisé : chaque
+   * createObjectURL sans révocation est une fuite, et le rendu de
+   * l'inspecteur en demanderait une par frappe.
+   */
+  async url(id) {
+    if (this._urls.has(id)) return this._urls.get(id);
+    const blob = await this.getBlob(id);
+    if (!blob) return null;
+    const url = URL.createObjectURL(blob);
+    this._urls.set(id, url);
+    return url;
+  },
+
+  /** Pose le `src` dès que le blob est lu. */
+  bind(element, id, attr = 'src') {
+    this.url(id).then(url => { if (url) element[attr] = url; });
+    return element;
+  },
+
+  releaseAll() {
+    this._urls.forEach(url => URL.revokeObjectURL(url));
+    this._urls.clear();
+  },
+
+  release(id) {
+    const url = this._urls.get(id);
+    if (url) { URL.revokeObjectURL(url); this._urls.delete(id); }
+  },
+
+  async remove(id) {
+    this.release(id);
+    await IDB.delete('assets', id);
+  },
+
+  async removeForScenario(scenarioId) {
+    const keys = await IDB.keysByIndex('assets', 'scenarioId', scenarioId);
+    keys.forEach(k => this.release(k));
+    return IDB.deleteMany('assets', keys);
+  },
+
+  async totalSize(scenarioId) {
+    const keys = await IDB.keysByIndex('assets', 'scenarioId', scenarioId);
+    let total = 0;
+    for (const k of keys) total += (await IDB.get('assets', k))?.size || 0;
+    return total;
+  },
+
+  /**
+   * Reprend les scénarios d'avant la v0.2, dont les médias étaient des
+   * chaînes base64 inscrites dans le document lui-même.
+   */
+  async migrateInlineAssets(scn) {
+    if (!scn?.assets?.length) return false;
+    let migrated = false;
+    for (const a of scn.assets) {
+      if (!a.dataUrl) continue;
+      try {
+        const blob = await (await fetch(a.dataUrl)).blob();
+        await this.put(scn.id, { ...a, type: a.type || blob.type }, blob);
+        a.size = blob.size;
+        delete a.dataUrl;
+        migrated = true;
+      } catch (e) {
+        console.error('[assets] migration impossible :', a.name, e);
+      }
+    }
+    return migrated;
+  }
 };
 
 // ============================================================
@@ -179,21 +313,26 @@ const TileCache = {
   async countAll() { try { return IDB.count('tiles'); } catch (e) { return 0; } },
 
   async countFor(provider) {
-    try {
-      const all = await IDB.getAll('tiles');
-      return all.filter(t => t.key?.startsWith(provider + '/')).length;
-    } catch (e) { return 0; }
+    try { return await IDB.countByIndex('tiles', 'provider', provider); }
+    catch (e) { return 0; }
   },
 
   async clear() { return IDB.clear('tiles'); },
 
   async clearProvider(provider) {
     try {
-      const all = await IDB.getAll('tiles');
-      const toDelete = all.filter(t => t.key?.startsWith(provider + '/'));
-      for (const t of toDelete) await IDB.delete('tiles', t.key);
-      return toDelete.length;
+      const keys = await IDB.keysByIndex('tiles', 'provider', provider);
+      return await IDB.deleteMany('tiles', keys);
     } catch (e) { return 0; }
+  },
+
+  /** Présence d'une tuile sans transférer son blob. */
+  async has(provider, z, x, y) {
+    try {
+      const os = await IDB._store('tiles');
+      const k = await IDB._req(os.getKey(this._key(provider, z, x, y)));
+      return k !== undefined;
+    } catch (e) { return false; }
   },
 
   estimate(bounds, minZ, maxZ) { return estimateTiles(bounds, minZ, maxZ); },
@@ -215,29 +354,38 @@ const TileCache = {
     const notify = () => opts.onProgress?.({ done, total, skipped, errors });
     notify();
 
-    // Throttle plus prudent (120ms) pour respecter les providers
-    const delayMs = opts.delayMs || 120;
+    // Une tuile à la fois plus 120 ms d'attente, c'était six minutes de
+    // plancher pour 3 000 tuiles. Quelques requêtes en vol, avec le même
+    // débit global, respectent tout autant le fournisseur.
+    const concurrency = opts.concurrency || 4;
+    const delayMs = opts.delayMs ?? 120;
+    let cursor = 0;
     let subIdx = 0;
 
-    for (const t of tiles) {
-      if (opts.isCancelled?.()) break;
-      const existing = await this.get(provider, t.z, t.x, t.y);
-      if (existing) {
-        skipped++; done++; notify();
-        continue;
+    const worker = async () => {
+      while (cursor < tiles.length) {
+        if (opts.isCancelled?.()) return;
+        const t = tiles[cursor++];
+
+        // `has()` interroge la clé sans transférer le blob.
+        if (await this.has(provider, t.z, t.x, t.y)) {
+          skipped++; done++; notify();
+          continue;
+        }
+        try {
+          const url = buildTileUrl(provider, t.z, t.x, t.y, subIdx++);
+          const r = await fetch(url);
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          await this.put(provider, t.z, t.x, t.y, await r.blob());
+        } catch (e) {
+          errors++;
+        }
+        done++; notify();
+        if (delayMs) await new Promise(r => setTimeout(r, delayMs * concurrency));
       }
-      try {
-        const url = buildTileUrl(provider, t.z, t.x, t.y, subIdx++);
-        const r = await fetch(url);
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const blob = await r.blob();
-        await this.put(provider, t.z, t.x, t.y, blob);
-      } catch (e) {
-        errors++;
-      }
-      done++; notify();
-      await new Promise(r => setTimeout(r, delayMs));
-    }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(concurrency, tiles.length) }, worker));
     return { done, total, skipped, errors };
   }
 };
@@ -255,6 +403,20 @@ function createCachedTileLayer(providerId) {
 
   const layer = L.tileLayer(provider.url, options);
   layer._providerId = providerId;
+
+  // Chaque tuile servie depuis le cache crée un object URL. Leaflet détruit
+  // les tuiles sorties de l'écran, mais l'URL, elle, retenait le blob : la
+  // mémoire grimpait à chaque panoramique jusqu'à faire tomber l'onglet.
+  layer.on('tileunload', e => {
+    const src = e.tile?.src;
+    if (src && src.startsWith('blob:')) URL.revokeObjectURL(src);
+  });
+  layer.on('remove', () => {
+    for (const key in layer._tiles) {
+      const src = layer._tiles[key]?.el?.src;
+      if (src && src.startsWith('blob:')) URL.revokeObjectURL(src);
+    }
+  });
 
   layer.createTile = function(coords, done) {
     const tile = document.createElement('img');
@@ -290,6 +452,72 @@ function createCachedTileLayer(providerId) {
 }
 
 // ============================================================
+// Offline — service worker, persistance, quota
+// ============================================================
+const Offline = {
+  registration: null,
+
+  /**
+   * Le service worker est ce qui rend la promesse « hors ligne » réelle :
+   * sans lui, l'application ne s'ouvre pas quand il n'y a pas de réseau.
+   */
+  async registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    // Un service worker exige un contexte sécurisé. En http:// sur une IP
+    // locale, on ne s'en plaint pas : c'est le cas du développement.
+    if (!window.isSecureContext) return;
+    try {
+      const reg = await navigator.serviceWorker.register('sw.js');
+      this.registration = reg;
+      if (reg.waiting) this._announceUpdate(reg.waiting);
+      reg.addEventListener('updatefound', () => {
+        const sw = reg.installing;
+        if (!sw) return;
+        sw.addEventListener('statechange', () => {
+          // controller null = première installation : rien à annoncer.
+          if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+            this._announceUpdate(sw);
+          }
+        });
+      });
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloading) return;
+        reloading = true;
+        location.reload();
+      });
+    } catch (e) {
+      console.error('[offline] enregistrement du service worker :', e);
+    }
+  },
+
+  _announceUpdate(worker) {
+    Toast.action('Nouvelle version disponible', 'Recharger', () => worker.postMessage('SKIP_WAITING'));
+  },
+
+  /**
+   * Sans persistance, le navigateur peut évincer IndexedDB sous pression
+   * de stockage — c'est-à-dire perdre scénarios et tuiles, sur un
+   * téléphone plein, un jour d'événement.
+   */
+  async requestPersistence() {
+    if (!navigator.storage?.persist) return null;
+    try {
+      if (await navigator.storage.persisted()) return true;
+      return await navigator.storage.persist();
+    } catch (e) { return null; }
+  },
+
+  async estimate() {
+    if (!navigator.storage?.estimate) return null;
+    try {
+      const { usage, quota } = await navigator.storage.estimate();
+      return { usage: usage || 0, quota: quota || 0 };
+    } catch (e) { return null; }
+  }
+};
+
+// ============================================================
 // Toast
 // ============================================================
 const Toast = {
@@ -308,6 +536,21 @@ const Toast = {
       setTimeout(() => t.remove(), 200);
     }, ms);
   },
+  /** Toast persistant portant une action — mise à jour, reprise… */
+  action(message, label, onClick) {
+    const t = el('div', { class: 'toast info with-action' },
+      el('span', { class: 'icon' }, '↻'),
+      el('span', {}, message),
+      el('button', {
+        class: 'toast-action',
+        onclick: () => { t.remove(); onClick(); }
+      }, label),
+      el('button', { class: 'toast-close', 'aria-label': 'Ignorer', onclick: () => t.remove() }, '✕')
+    );
+    this.container.appendChild(t);
+    return t;
+  },
+
   ok(m)    { this.show(m, 'ok'); },
   info(m)  { this.show(m, 'info'); },
   warn(m)  { this.show(m, 'warn'); },
@@ -582,11 +825,23 @@ const Scenario = {
   blank() { return blankScenario(); },
 
   load(data) {
+    // Les object URLs du scénario précédent n'ont plus de raison d'être.
+    AssetStore.releaseAll();
     // Toute donnée entrante (stockage, ZIP partagé) passe par la
     // normalisation du noyau avant de devenir l'état courant.
     this.current = migrateScenario(data);
     this.touch(false);
     this.emit('load');
+
+    // Médias hérités de la v0.1 (base64 dans le document) : on les sort
+    // vers leur store, sans bloquer l'affichage.
+    const id = this.current.id;
+    AssetStore.migrateInlineAssets(this.current).then(migrated => {
+      if (!migrated || this.current?.id !== id) return;
+      Storage.save?.();
+      this.emit('assetsMigrated');
+      Inspector.render?.();
+    }).catch(console.error);
   },
 
   touch(markDirty = true) {
@@ -1098,10 +1353,10 @@ const Inspector = {
 
       if (node.media.image) {
         const a = imageAssets.find(x => x.id === node.media.image);
-        if (a) mediaSection.appendChild(el('img', {
-          src: a.dataUrl,
+        if (a) mediaSection.appendChild(AssetStore.bind(el('img', {
+          alt: a.name,
           style: { width: '100%', maxHeight: '160px', objectFit: 'cover', borderRadius: '3px', border: '1px solid var(--line)', marginBottom: '12px' }
-        }));
+        }), a.id));
       }
 
       // Audio
@@ -1129,10 +1384,10 @@ const Inspector = {
 
       if (node.media.audio) {
         const a = audioAssets.find(x => x.id === node.media.audio);
-        if (a) mediaSection.appendChild(el('audio', {
-          src: a.dataUrl, controls: true,
+        if (a) mediaSection.appendChild(AssetStore.bind(el('audio', {
+          controls: true,
           style: { width: '100%', marginBottom: '8px' }
-        }));
+        }), a.id));
       }
 
       frag.appendChild(mediaSection);
@@ -1335,12 +1590,31 @@ const Inspector = {
     cacheSection.appendChild(el('p', { style: { fontSize: '12px', color: 'var(--ink-soft)', marginBottom: '10px' } },
       'Télécharge les tuiles de la zone actuellement visible pour pouvoir jouer sans réseau.'
     ));
-    const cacheStats = el('div', { style: { fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--ink-faint)', marginBottom: '10px' } },
-      'Calcul des stats…');
+    const cacheStats = el('div', { class: 'storage-stats' }, 'Calcul des stats…');
     cacheSection.appendChild(cacheStats);
-    Promise.all([TileCache.countFor(providerId), TileCache.countAll()]).then(([nProv, nAll]) => {
+    Promise.all([
+      TileCache.countFor(providerId),
+      TileCache.countAll(),
+      Offline.estimate(),
+      navigator.storage?.persisted?.() ?? null
+    ]).then(([nProv, nAll, est, persisted]) => {
       const zoom = Editor.map?.getZoom?.() || '?';
-      cacheStats.textContent = `${nProv} tuile(s) ${TILE_PROVIDERS[providerId].name} · ${nAll} au total · zoom carte : ${zoom}`;
+      cacheStats.innerHTML = '';
+      cacheStats.appendChild(el('div', {},
+        `${nProv} tuile(s) ${TILE_PROVIDERS[providerId].name} · ${nAll} au total · zoom carte : ${zoom}`));
+      if (est && est.quota) {
+        // Un nombre de tuiles ne dit rien de la place restante : c'est le
+        // quota qui décide si le pré-cache tiendra jusqu'au bout.
+        const pct = Math.min(100, Math.round((est.usage / est.quota) * 100));
+        cacheStats.appendChild(el('div', { style: { marginTop: '4px' } },
+          `${formatBytes(est.usage)} utilisés sur ${formatBytes(est.quota)} (${pct} %)`));
+        cacheStats.appendChild(el('div', { class: 'quota-bar' },
+          el('span', { style: { width: pct + '%' } })));
+      }
+      cacheStats.appendChild(el('div', { style: { marginTop: '4px' } },
+        persisted === true
+          ? '✓ Stockage persistant : les données ne seront pas évincées.'
+          : 'Stockage non persistant : le navigateur peut effacer scénarios et tuiles s\'il manque de place.'));
     });
     cacheSection.appendChild(el('div', { class: 'btn-row' },
       el('button', { class: 'btn', onclick: () => Editor.precacheZone() }, 'Pré-cacher cette zone'),
@@ -1395,7 +1669,7 @@ const Inspector = {
       scn.assets.forEach(a => {
         const isImage = a.type && a.type.startsWith('image/');
         const thumb = isImage
-          ? el('img', { class: 'thumb', src: a.dataUrl, alt: a.name })
+          ? AssetStore.bind(el('img', { class: 'thumb', alt: a.name }), a.id)
           : el('div', { class: 'thumb' }, a.type && a.type.startsWith('audio/') ? '♪' : '?');
         list.appendChild(el('div', { class: 'asset-item' },
           thumb,
@@ -1406,7 +1680,10 @@ const Inspector = {
           el('button', {
             class: 'del',
             onclick: () => {
-              if (confirm(`Supprimer ${a.name} ?`)) Scenario.removeAsset(a.id);
+              if (confirm(`Supprimer ${a.name} ?`)) {
+                AssetStore.remove(a.id).catch(console.error);
+                Scenario.removeAsset(a.id);
+              }
             }
           }, '✕')
         ));
@@ -1437,29 +1714,19 @@ const Inspector = {
         continue;
       }
       try {
-        const dataUrl = await this._readAsDataURL(f);
-        Scenario.addAsset({
-          id: uid('asset'),
-          name: f.name,
-          type: f.type,
-          size: f.size,
-          dataUrl
-        });
+        // Le fichier est déjà un Blob : IndexedDB le stocke tel quel.
+        // Le passer en base64 le gonflait d'un tiers et le collait au
+        // document du scénario, réécrit à chaque sauvegarde.
+        const asset = { id: uid('asset'), name: f.name, type: f.type, size: f.size };
+        await AssetStore.put(Scenario.current.id, asset, f);
+        Scenario.addAsset(asset);
       } catch (e) {
+        console.error(e);
         Toast.error(`Échec de lecture de ${f.name}`);
       }
     }
     this.render();
   },
-  _readAsDataURL(file) {
-    return new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(r.result);
-      r.onerror = reject;
-      r.readAsDataURL(file);
-    });
-  },
-
 
   _conditionLabel(c) {
     if (!c) return '∅';
@@ -2292,11 +2559,15 @@ const IO = {
       }));
       zip.file('scenario.json', JSON.stringify(exported, null, 2));
 
-      // Assets
+      // Les médias sont lus un par un depuis leur store : on ne charge
+      // jamais l'ensemble de la bibliothèque en mémoire d'un coup.
+      let manquants = 0;
       for (const a of scn.assets) {
-        const base64 = a.dataUrl.split(',')[1] || '';
-        zip.file(`assets/${a.id}_${a.name}`, base64, { base64: true });
+        const blob = await AssetStore.getBlob(a.id);
+        if (!blob) { manquants++; continue; }
+        zip.file(`assets/${a.id}_${a.name}`, blob);
       }
+      if (manquants) Toast.warn(`${manquants} média(s) introuvable(s), exportés sans contenu`);
 
       const blob = await zip.generateAsync({ type: 'blob' });
       const filename = `${slugify(scn.meta.title)}.zip`;
@@ -2332,23 +2603,29 @@ const IO = {
     // Lecture du fichier : c'est le seul endroit où « ZIP corrompu » est
     // un diagnostic honnête. Tout ce qui suit relève de l'application.
     let json;
+    const pendingAssets = [];
     try {
       const zip = await JSZip.loadAsync(file);
       const scnFile = zip.file('scenario.json');
       if (!scnFile) { Toast.error('scenario.json manquant dans le ZIP'); return false; }
       json = JSON.parse(await scnFile.async('string'));
-      const assets = [];
-      for (const a of (Array.isArray(json.assets) ? json.assets : [])) {
-        const path = a.path || `assets/${a.id}_${a.name}`;
-        const entry = zip.file(path);
-        if (entry) {
-          const b64 = await entry.async('base64');
-          assets.push({ ...a, dataUrl: `data:${a.type || 'application/octet-stream'};base64,${b64}` });
-        } else {
-          assets.push(a);
-        }
+      // Les binaires vont directement dans leur store, indexés par le
+      // scénario auquel ils appartiennent.
+      const declared = Array.isArray(json.assets) ? json.assets : [];
+      const scenarioId = typeof json.id === 'string' && json.id ? json.id : null;
+      const kept = [];
+      for (const a of declared) {
+        if (!a || typeof a.id !== 'string') continue;
+        const entry = zip.file(a.path || `assets/${a.id}_${a.name}`);
+        if (!entry) { kept.push(a); continue; }
+        const blob = await entry.async('blob');
+        pendingAssets.push({
+          asset: { id: a.id, name: a.name || a.id, type: a.type || blob.type || '' },
+          blob, scenarioId
+        });
+        kept.push({ id: a.id, name: a.name || a.id, type: a.type || blob.type || '', size: blob.size });
       }
-      json.assets = assets;
+      json.assets = kept;
     } catch (e) {
       console.error(e);
       Toast.error('ZIP illisible ou corrompu');
@@ -2358,7 +2635,12 @@ const IO = {
     // migrateScenario() répare ou écarte ce qui ne tient pas debout, donc
     // ce chargement ne peut plus faire échouer l'import.
     Scenario.load(json);
-    Storage.setCurrent(Scenario.current.id);
+    const scenarioId = Scenario.current.id;
+    for (const { asset, blob } of pendingAssets) {
+      try { await AssetStore.put(scenarioId, asset, blob); }
+      catch (e) { console.error('[import] média non enregistré :', asset.name, e); }
+    }
+    Storage.setCurrent(scenarioId);
     Editor.rebuild(); // no-op si l'éditeur n'est pas monté
     Toast.ok(`« ${Scenario.current.meta.title || 'Scénario'} » importé`);
     return true;
@@ -2713,14 +2995,14 @@ const Player = {
     // Image
     if (node.media?.image) {
       const a = this.scenario.assets.find(x => x.id === node.media.image);
-      if (a) card.appendChild(el('img', { class: 'play-media', src: a.dataUrl, alt: '' }));
+      if (a) card.appendChild(AssetStore.bind(el('img', { class: 'play-media', alt: '' }), a.id));
     }
     // Description
     if (node.description) card.appendChild(el('p', { class: 'play-desc' }, node.description));
     // Audio
     if (node.media?.audio) {
       const a = this.scenario.assets.find(x => x.id === node.media.audio);
-      if (a) card.appendChild(el('audio', { class: 'play-audio', src: a.dataUrl, controls: true }));
+      if (a) card.appendChild(AssetStore.bind(el('audio', { class: 'play-audio', controls: true }), a.id));
     }
     // Énigme : question en exergue
     if (node.type === 'enigme' && node.question) {
@@ -3060,15 +3342,40 @@ const Player = {
 
       status.textContent = 'Vise un QR code avec la caméra';
 
+      // Beaucoup de QR sont posés en intérieur sombre ou à l'ombre.
+      const track = this.qrStream.getVideoTracks()[0];
+      if (track?.getCapabilities?.().torch) {
+        let on = false;
+        const torch = el('button', { class: 'btn ghost small qr-torch' }, '🔦 Lampe');
+        torch.onclick = async () => {
+          on = !on;
+          try {
+            await track.applyConstraints({ advanced: [{ torch: on }] });
+            torch.classList.toggle('active', on);
+          } catch (e) { Toast.warn('Lampe indisponible'); }
+        };
+        wrap.appendChild(torch);
+      }
+
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
       const expected = node.validation?.value || '';
-      const scan = () => {
+      // Analyser 1920×1080 soixante fois par seconde, c'est deux millions
+      // de pixels par image pour rien : jsQR lit très bien à 480 px de
+      // large, et la batterie est la ressource critique sur le terrain.
+      const SCAN_WIDTH = 480;
+      const SCAN_INTERVAL = 100; // ms — 10 analyses par seconde suffisent
+      let lastScan = 0;
+
+      const scan = (now = 0) => {
         if (!this.qrStream) return;
-        if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth) {
-          canvas.width  = video.videoWidth;
-          canvas.height = video.videoHeight;
+        if (now - lastScan >= SCAN_INTERVAL &&
+            video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth) {
+          lastScan = now;
+          const scale = Math.min(1, SCAN_WIDTH / video.videoWidth);
+          canvas.width  = Math.round(video.videoWidth * scale);
+          canvas.height = Math.round(video.videoHeight * scale);
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           try {
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -3089,7 +3396,7 @@ const Player = {
         }
         this.qrAnimFrame = requestAnimationFrame(scan);
       };
-      scan();
+      this.qrAnimFrame = requestAnimationFrame(scan);
     } catch (e) {
       status.textContent = 'Caméra inaccessible : ' + (e.message || e.name || 'refusée');
       status.classList.add('warn');
@@ -3336,6 +3643,14 @@ const App = {
 
     if (!location.hash) location.hash = 'home';
     this.route();
+
+    // Après le premier rendu : rien de tout cela ne doit retarder l'affichage.
+    Offline.registerServiceWorker();
+    Offline.requestPersistence().then(granted => {
+      if (granted === false) {
+        console.warn('[offline] stockage non persistant : le navigateur peut évincer les données.');
+      }
+    });
   },
 
   markDirty() {
@@ -3518,6 +3833,7 @@ const App = {
               onclick: async (e) => {
                 e.stopPropagation();
                 if (confirm(`Supprimer "${entry.title}" de la bibliothèque ?`)) {
+                  await AssetStore.removeForScenario(entry.id);
                   await Library.delete(entry.id);
                   this._renderHome(container);
                   Toast.ok('Scénario supprimé');
@@ -3543,33 +3859,30 @@ const App = {
 // ============================================================
 function checkDeps() {
   const missing = [];
-  if (typeof L === 'undefined')        missing.push('Leaflet (carte)');
-  if (typeof Drawflow === 'undefined') missing.push('Drawflow (graphe)');
-  if (typeof JSZip === 'undefined')    missing.push('JSZip (export ZIP)');
-  if (typeof jsQR === 'undefined')     missing.push('jsQR (lecture QR)');
+  if (typeof L === 'undefined')        missing.push('vendor/leaflet.js (carte)');
+  if (typeof Drawflow === 'undefined') missing.push('vendor/drawflow.min.js (graphe)');
+  if (typeof JSZip === 'undefined')    missing.push('vendor/jszip.min.js (export ZIP)');
+  if (typeof jsQR === 'undefined')     missing.push('vendor/jsQR.js (lecture QR)');
   return missing;
 }
 
 function showDepsError(missing) {
   document.body.innerHTML = `
     <div style="max-width:560px;margin:80px auto;padding:32px;font-family:'IBM Plex Sans',sans-serif;color:#2a2520;background:#f4ecdf;border:1px solid #c9b896;border-radius:6px;box-shadow:0 4px 24px rgba(0,0,0,.1)">
-      <h1 style="font-family:'Fraunces',serif;font-weight:500;margin:0 0 12px;font-size:28px">Dépendances non chargées</h1>
-      <p style="color:#5a4f42;margin:0 0 16px">Les bibliothèques suivantes n'ont pas pu être chargées depuis leur CDN :</p>
+      <h1 style="font-family:'Fraunces',serif;font-weight:500;margin:0 0 12px;font-size:28px">Fichiers manquants</h1>
+      <p style="color:#5a4f42;margin:0 0 16px">Ces bibliothèques, pourtant livrées avec l'application, n'ont pas pu être chargées&nbsp;:</p>
       <ul style="color:#b0613a;font-family:'IBM Plex Mono',monospace;font-size:13px">
         ${missing.map(m => `<li>${m}</li>`).join('')}
       </ul>
       <p style="color:#5a4f42;font-size:13px;margin-top:20px">
-        Causes possibles : pas de connexion Internet, bloqueur de publicités, ou CSP stricte.
-        Essaie de recharger la page, ou ouvre le fichier dans un onglet normal (hors iframe/sandbox).
+        L'application n'a besoin d'aucun réseau pour démarrer&nbsp;: si ces fichiers manquent,
+        c'est que le dossier <code>vendor/</code> n'a pas été déployé, ou que la page est
+        ouverte en <code>file://</code> — elle doit être servie en HTTP.
       </p>
     </div>`;
 }
 
-// Le passage en module a rendu ces objets privés. On les réexpose sous un
-// seul nom : ils étaient déjà des globales dans la version monofichier, et
-// c'est le seul moyen d'inspecter une partie depuis la console, sur le
-// terrain, quand quelque chose se passe mal.
-window.Parcours = { App, Scenario, Editor, Inspector, Player, PlayerState, IO, Library, Storage, TileCache, Toast };
+window.Parcours = { App, Scenario, Editor, Inspector, Player, PlayerState, IO, Library, Storage, TileCache, AssetStore, Offline, Toast };
 
 function boot() {
   const missing = checkDeps();
