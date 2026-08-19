@@ -7,7 +7,7 @@
 
 // À incrémenter à chaque déploiement : c'est ce qui déclenche la
 // mise à jour du cache chez les utilisateurs déjà installés.
-const VERSION = 'v0.2.0';
+const VERSION = 'v0.3.0';
 const SHELL = `parcours-shell-${VERSION}`;
 
 const PRECACHE = [
@@ -23,6 +23,8 @@ const PRECACHE = [
   'vendor/drawflow.min.css',
   'vendor/jszip.min.js',
   'vendor/jsQR.js',
+  'vendor/qrcode.mjs',
+  'vendor/qrcode_UTF8.mjs',
   'vendor/fonts.css',
   'vendor/fonts/fraunces-latin-standard-normal.woff2',
   'vendor/fonts/fraunces-latin-standard-italic.woff2',

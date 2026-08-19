@@ -10,12 +10,12 @@ en `.zip`, on le joue sur le terrain.
 |---|---|
 | `index.html` | Balisage minimal : conteneurs et chargement des dépendances |
 | `styles.css` | Feuille de style unique — design « carnet de terrain » |
-| `src/core.js` | Logique pure : routage du joueur, comparaison des réponses, géométrie, migration des scénarios. **Sans DOM** — c'est ce qui est testé |
+| `src/core.js` | Logique pure : routage du joueur, analyse du graphe, vérification du parcours, classement, géométrie, migration des scénarios. **Sans DOM** — c'est ce qui est testé |
 | `src/app.js` | Application : éditeur, inspecteur, moteur de jeu, stockage, import/export |
 | `sw.js` | Service worker : met l'application en cache pour l'ouvrir sans réseau |
 | `manifest.json`, `icons/` | Installation sur l'écran d'accueil |
-| `vendor/` | Leaflet, Drawflow, JSZip, jsQR et les polices — **embarqués**, aucun CDN |
-| `test/core.test.js` | Tests du noyau |
+| `vendor/` | Leaflet, Drawflow, JSZip, jsQR, qrcode-generator et les polices — **embarqués**, aucun CDN |
+| `test/core.test.js`, `test/graph.test.js` | Tests du noyau |
 | `test/browser/` | Suites de bout en bout pilotant Chromium |
 
 `src/app.js` est un module ES : la page doit être servie en HTTP, pas ouverte
@@ -29,7 +29,8 @@ npm run test:browser # bout en bout — nécessite playwright-core et un Chromiu
 ```
 
 Les suites navigateur servent le dépôt tel quel et vérifient notamment que
-l'application démarre **hors ligne**, réseau coupé.
+l'application démarre **hors ligne**, réseau coupé, et que les QR produits se
+relisent avec le décodeur qu'utilise le joueur.
 
 ## Développement local
 
@@ -39,6 +40,28 @@ python3 -m http.server 8000
 ```
 
 La géolocalisation et la caméra exigent un contexte sécurisé : `localhost` ou HTTPS.
+
+## Ce que fait l'éditeur
+
+- **Split-screen carte / graphe.** La carte dit *où*, le graphe dit *dans quel
+  ordre*. Le parcours est tracé sur la carte (pointillé pour les branches
+  conditionnelles), avec sa longueur.
+- **Vérification avant export.** Un panneau liste les anomalies — départ
+  manquant, impasse, nœud inatteignable, énigme sans réponse, QR sans valeur,
+  flag jamais posé, média orphelin. Chaque ligne mène au nœud fautif.
+- **Planche de QR à imprimer.** Une page A4 avec, pour chaque point, le QR, son
+  numéro, son titre, le code en clair (pour la saisie manuelle) et ses
+  coordonnées. Un bouton tire des codes aléatoires non devinables.
+- **Annuler / rétablir** (<kbd>Ctrl</kbd>+<kbd>Z</kbd>).
+- **Flags.** Un nœud peut en poser ; un lien peut en tester un ; un
+  `checkpoint` peut en exiger, et reste fermé tant qu'ils manquent.
+
+## Ce que fait le moteur de jeu
+
+Validation par QR, code saisi, proximité GPS ou simple confirmation ; réponse
+fausse au choix de l'auteur (réessayer sur place ou avancer) ; reprise d'une
+partie interrompue ; export des résultats et écran **Résultats** pour comparer
+plusieurs équipes et voir où elles ont buté.
 
 ## Hors ligne
 
@@ -60,6 +83,14 @@ déploie qu'après le passage des tests du noyau.
 ## État connu
 
 Voir [`docs/AUDIT.md`](docs/AUDIT.md) pour l'inventaire des constats et la
-trajectoire. Jalons 1 et 2 livrés. Restent surtout des manques fonctionnels :
-pas de génération des QR codes à imprimer, pas de vérification du parcours
-avant export, pas d'annuler/rétablir, et le tracé n'apparaît pas sur la carte.
+trajectoire. Les trois jalons de l'audit sont livrés.
+
+Deux limites à connaître :
+
+- **Le contenu d'un QR doit rester en ASCII.** Un QR accentué s'encode, mais le
+  décodeur embarqué le relit vide : le scan ne correspondrait jamais. La
+  vérification refuse ces valeurs plutôt que de laisser l'auteur le découvrir
+  sur le terrain.
+- Les suites navigateur ont montré un échec intermittent (une fois sur dix
+  environ, non reproduit) qui ressemble à une contention de ressources. Les
+  tests du noyau, eux, sont déterministes.

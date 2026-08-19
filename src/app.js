@@ -1,15 +1,20 @@
 /* ==========================================================
-   PARCOURS — v0.2
+   PARCOURS — v0.3
    Application autonome : éditeur + moteur de jeu
    La logique pure vit dans ./core.js (couverte par les tests).
    ========================================================== */
 
 import {
-  APP_VERSION, DEFAULT_PROVIDER, ON_WRONG,
+  APP_VERSION, DEFAULT_PROVIDER, ON_WRONG, SEVERITES,
+  allFlags, buildRanking, flagsRequiredBy, flagsSetBy, graphOrder, mainRouteDistance,
+  stepStats,
+  mainRouteLength, missingFlags, routeSegments, validateScenario,
   answersMatch, blankScenario, debounce, escapeHtml, estimateTiles,
   formatBytes, formatDate, hasPosition, haversine, latLngToTile,
   migrateScenario, onWrongBehaviour, pickNextNode, slugify, typeLabel, uid
 } from './core.js';
+import qrcode from '../vendor/qrcode.mjs';
+import '../vendor/qrcode_UTF8.mjs';   // effet de bord : encode les accents
 
 // ============================================================
 // Utilitaires DOM
@@ -35,6 +40,16 @@ function el(tag, attrs = {}, ...children) {
 
 // Détection mobile dynamique (respecte rotations/resize)
 const isMobile = () => window.matchMedia('(max-width: 768px)').matches;
+
+/**
+ * Valeur résolue d'un token de la palette.
+ *
+ * Leaflet écrit ses couleurs dans les attributs SVG `stroke` et `fill`,
+ * où `var(--forest)` ne se résout pas : le trait tombait en noir. On lit
+ * donc la valeur calculée, ce qui garde une seule source de vérité.
+ */
+const cssVar = (nom, repli = '#000') =>
+  getComputedStyle(document.documentElement).getPropertyValue(nom).trim() || repli;
 
 // ============================================================
 // IDB — wrapper minimal IndexedDB
@@ -831,6 +846,7 @@ const Scenario = {
     // normalisation du noyau avant de devenir l'état courant.
     this.current = migrateScenario(data);
     this.touch(false);
+    History.reset();
     this.emit('load');
 
     // Médias hérités de la v0.1 (base64 dans le document) : on les sort
@@ -847,7 +863,10 @@ const Scenario = {
   touch(markDirty = true) {
     if (!this.current) return;
     this.current.updatedAt = Date.now();
-    if (markDirty) App.markDirty();
+    if (markDirty) {
+      History.enregistrer();
+      App.markDirty();
+    }
   },
 
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); },
@@ -964,6 +983,80 @@ const Scenario = {
     this.touch();
     this.emit('assetRemoved', id);
   }
+};
+
+// ============================================================
+// History — annuler / rétablir
+// ============================================================
+const History = {
+  MAX: 60,
+  _passe: [],
+  _futur: [],
+  _reference: null,
+  _gele: false,
+
+  /**
+   * Instantanés JSON du scénario. C'est grossier, mais les médias vivent
+   * désormais dans leur propre store : un scénario ne pèse plus que
+   * quelques dizaines de kilo-octets, et le code reste lisible.
+   */
+  _snapshot() {
+    return Scenario.current ? JSON.stringify(Scenario.current) : null;
+  },
+
+  /** Repart de zéro sur un nouveau scénario. */
+  reset() {
+    // Annuler recharge le scénario, ce qui rappelle ici : sans ce garde,
+    // le premier « annuler » viderait la pile qu'il vient d'utiliser.
+    if (this._gele) { this._reference = this._snapshot(); return; }
+    this._passe = [];
+    this._futur = [];
+    this._reference = this._snapshot();
+    this._notifier();
+  },
+
+  /**
+   * Enregistre l'état *précédent* le changement. Appelé après coup par
+   * Scenario.touch() : la référence retenue est celle d'avant la mutation.
+   */
+  enregistrer() {
+    if (this._gele) return;
+    const avant = this._reference;
+    const apres = this._snapshot();
+    if (avant === null || avant === apres) { this._reference = apres; return; }
+    this._passe.push(avant);
+    if (this._passe.length > this.MAX) this._passe.shift();
+    this._futur.length = 0;
+    this._reference = apres;
+    this._notifier();
+  },
+
+  get peutAnnuler() { return this._passe.length > 0; },
+  get peutRetablir() { return this._futur.length > 0; },
+
+  annuler() { return this._appliquer(this._passe, this._futur); },
+  retablir() { return this._appliquer(this._futur, this._passe); },
+
+  _appliquer(source, destination) {
+    if (!source.length) return false;
+    const cible = source.pop();
+    destination.push(this._snapshot());
+    this._gele = true;
+    try {
+      Scenario.load(JSON.parse(cible));
+      Editor.rebuild();
+      Storage.save?.();
+    } finally {
+      this._gele = false;
+      this._reference = this._snapshot();
+    }
+    this._notifier();
+    return true;
+  },
+
+  _abonnes: new Set(),
+  on(fn) { this._abonnes.add(fn); return () => this._abonnes.delete(fn); },
+  _notifier() { this._abonnes.forEach(fn => fn()); }
 };
 
 // ============================================================
@@ -1280,9 +1373,32 @@ const Inspector = {
 
       const valType = node.validation.type;
       if (valType === 'qr' || valType === 'code') {
-        valSection.appendChild(FormBuilder.render([
+        const champ = FormBuilder.render([
           { key: 'validation.value', label: valType === 'qr' ? 'Contenu du QR attendu' : 'Code attendu', type: 'text' }
-        ], node, onChange));
+        ], node, onChange);
+        valSection.appendChild(champ);
+        const input = $('input', champ);
+        valSection.appendChild(el('div', { class: 'btn-row', style: { marginTop: '-6px', marginBottom: '12px' } },
+          el('button', {
+            class: 'btn ghost small',
+            title: 'Un code tiré au sort ne se devine pas',
+            onclick: () => {
+              const code = QR.code();
+              node.validation.value = code;
+              if (input) input.value = code;
+              Scenario.touch();
+              this.render();
+            }
+          }, '⚄ Code aléatoire')
+        ));
+        // Aperçu : ce qui sera imprimé, visible tout de suite.
+        const valeur = String(node.validation.value || '').trim();
+        if (valType === 'qr' && valeur) {
+          const apercu = el('div', { class: 'qr-preview' });
+          apercu.appendChild(QR.svg(valeur, { taille: 104 }));
+          apercu.appendChild(el('div', { class: 'hint' }, 'Aperçu du QR à poser sur le terrain'));
+          valSection.appendChild(apercu);
+        }
       }
       if (valType === 'gps') {
         valSection.appendChild(FormBuilder.render([
@@ -1305,6 +1421,21 @@ const Inspector = {
       }
 
       frag.appendChild(valSection);
+    }
+
+    // Flags posés à la complétion — c'est ce qui manquait pour que les
+    // conditions « si flag » et les checkpoints veuillent dire quelque chose.
+    if (node.type !== 'outro') {
+      frag.appendChild(this._renderFlagEditor(
+        node, 'setsFlags', 'Flags posés',
+        'Acquis par l\'équipe quand elle valide ce nœud. Un autre nœud pourra les exiger, ou un lien les tester.'
+      ));
+    }
+    if (node.type === 'checkpoint') {
+      frag.appendChild(this._renderFlagEditor(
+        node, 'requiresFlags', 'Flags exigés',
+        'L\'équipe ne franchit ce checkpoint qu\'en les ayant tous. Sans flag exigé, il se comporte comme une étape.'
+      ));
     }
 
     // Champs spécifiques énigme
@@ -1424,8 +1555,10 @@ const Inspector = {
           el('button', {
             class: 'btn ghost small danger',
             style: { marginLeft: '4px' },
-            onclick: () => {
-              if (confirm('Supprimer ce lien ?')) {
+            onclick: async () => {
+              const cible = Scenario.getNode(l.target);
+              if (await Modal.confirm(`Supprimer le lien vers « ${cible?.title || '?'} » ?`,
+                                      { titre: 'Supprimer le lien', valider: 'Supprimer', danger: true })) {
                 Editor.removeLink(l.id);
               }
             }
@@ -1446,8 +1579,12 @@ const Inspector = {
       }, Scenario.current.meta.startNodeId === node.id ? '✓ Départ' : 'Définir comme départ'),
       el('button', {
         class: 'btn ghost danger',
-        onclick: () => {
-          if (confirm(`Supprimer le nœud "${node.title}" ?`)) {
+        onclick: async () => {
+          const liens = Scenario.getLinksFrom(node.id).length + Scenario.getLinksTo(node.id).length;
+          if (await Modal.confirm(`Supprimer « ${node.title} » ?`, {
+            titre: 'Supprimer le nœud', valider: 'Supprimer', danger: true,
+            detail: liens ? `${liens} lien(s) seront supprimés avec lui.` : null
+          })) {
             Editor.removeNode(node.id);
           }
         }
@@ -1456,6 +1593,51 @@ const Inspector = {
     frag.appendChild(actions);
 
     return frag;
+  },
+
+  /** Petit éditeur de liste de flags, partagé par « posés » et « exigés ». */
+  _renderFlagEditor(node, cle, titre, aide) {
+    const section = el('div', { class: 'inspector-section' });
+    section.appendChild(el('h3', {}, titre));
+    section.appendChild(el('p', { class: 'field-hint', style: { marginBottom: '10px' } }, aide));
+
+    const liste = Array.isArray(node[cle]) ? node[cle] : [];
+    const majAffichage = () => { Scenario.touch(); this.render(); };
+
+    if (liste.length) {
+      const chips = el('div', { class: 'flag-list' });
+      liste.forEach(flag => {
+        chips.appendChild(el('span', { class: 'flag-chip' }, flag,
+          el('button', {
+            'aria-label': `Retirer ${flag}`,
+            onclick: () => { node[cle] = liste.filter(f => f !== flag); majAffichage(); }
+          }, '✕')
+        ));
+      });
+      section.appendChild(chips);
+    }
+
+    // Les flags déjà employés ailleurs sont proposés : c'est là que se
+    // jouent la plupart des fautes de frappe.
+    const connus = allFlags(Scenario.current).filter(f => !liste.includes(f));
+    const input = el('input', { type: 'text', placeholder: 'nom du flag', list: `flags-${cle}` });
+    const datalist = el('datalist', { id: `flags-${cle}` });
+    connus.forEach(f => datalist.appendChild(el('option', { value: f })));
+
+    const ajouter = () => {
+      const nom = input.value.trim();
+      if (!nom) return;
+      if (liste.includes(nom)) { Toast.info('Ce flag est déjà dans la liste'); return; }
+      node[cle] = [...liste, nom];
+      majAffichage();
+    };
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ajouter(); } });
+
+    section.appendChild(el('div', { class: 'flag-add' },
+      input, datalist,
+      el('button', { class: 'btn ghost small', onclick: ajouter }, 'Ajouter')
+    ));
+    return section;
   },
 
   renderScenarioTab() {
@@ -1539,23 +1721,33 @@ const Inspector = {
       el('span', { class: 'chip' }, `${scn.nodes.length} nœud${scn.nodes.length > 1 ? 's' : ''}`),
       el('span', { class: 'chip' }, `${scn.links.length} lien${scn.links.length > 1 ? 's' : ''}`),
       el('span', { class: 'chip' }, `${scn.assets.length} asset${scn.assets.length > 1 ? 's' : ''}`),
-      el('span', { class: 'chip' }, `MAJ ${formatDate(scn.updatedAt)}`)
+      el('span', { class: 'chip' }, (() => {
+        const m = mainRouteDistance(scn);
+        return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
+      })())
     ));
     frag.appendChild(stats);
+
+    // Vérification du parcours — avant l'export, pas sur le terrain.
+    frag.appendChild(this._renderChecklist(scn));
 
     // Import / export / test
     const io = el('div', { class: 'inspector-section' });
     io.appendChild(el('h3', {}, 'Projet'));
     io.appendChild(el('div', { class: 'btn-row' },
       el('button', { class: 'btn accent', onclick: () => App.testPlay() }, '▶ Tester'),
+      el('button', { class: 'btn ghost', onclick: () => QR.printSheet(scn) }, '⎙ Planche de QR'),
       el('button', { class: 'btn ghost', onclick: () => IO.exportZip() }, 'Exporter .zip'),
       el('button', { class: 'btn ghost', onclick: () => IO.importZipDialog() }, 'Importer .zip'),
       el('button', { class: 'btn ghost', onclick: () => IO.exportJson() }, 'Export JSON')
     ));
     io.appendChild(el('div', { class: 'btn-row' },
       el('button', {
-        class: 'btn ghost danger', onclick: () => {
-          if (confirm('Repartir d\'un scénario vierge ? Le travail actuel sera perdu (sauf export).')) {
+        class: 'btn ghost danger', onclick: async () => {
+          if (await Modal.confirm('Repartir d\'un scénario vierge ?', {
+            titre: 'Nouveau scénario', valider: 'Repartir de zéro', danger: true,
+            detail: 'Le scénario courant reste dans la bibliothèque, mais tu quittes ce que tu es en train de faire.'
+          })) {
             Scenario.load(Scenario.blank());
             Editor.rebuild();
             Toast.ok('Nouveau scénario vierge');
@@ -1621,7 +1813,10 @@ const Inspector = {
       el('button', {
         class: 'btn ghost danger',
         onclick: async () => {
-          if (confirm('Vider entièrement le cache de tuiles ?')) {
+          if (await Modal.confirm('Vider entièrement le cache de tuiles ?', {
+            titre: 'Vider le cache', valider: 'Vider', danger: true,
+            detail: 'Il faudra retélécharger la zone avant de jouer hors ligne.'
+          })) {
             await TileCache.clear();
             Toast.ok('Cache vidé');
             this.render();
@@ -1632,6 +1827,56 @@ const Inspector = {
     frag.appendChild(cacheSection);
 
     return frag;
+  },
+
+  /**
+   * Liste les anomalies du parcours. Sans elle, l'auteur ne les découvrait
+   * que sur le terrain, avec son équipe.
+   */
+  _renderChecklist(scn) {
+    const section = el('div', { class: 'inspector-section' });
+    const anomalies = validateScenario(scn);
+    const erreurs = anomalies.filter(a => a.severity === SEVERITES.ERREUR);
+    const avertissements = anomalies.filter(a => a.severity === SEVERITES.AVERTISSEMENT);
+
+    section.appendChild(el('h3', {}, 'Vérification'));
+
+    if (!anomalies.length) {
+      section.appendChild(el('div', { class: 'check-ok' },
+        el('span', { class: 'icon' }, '✓'),
+        'Le parcours est jouable de bout en bout.'
+      ));
+      return section;
+    }
+
+    section.appendChild(el('div', { class: 'check-summary' },
+      erreurs.length
+        ? el('span', { class: 'chip danger' }, `${erreurs.length} erreur${erreurs.length > 1 ? 's' : ''}`)
+        : el('span', { class: 'chip' }, 'aucune erreur'),
+      avertissements.length
+        ? el('span', { class: 'chip warn' }, `${avertissements.length} avertissement${avertissements.length > 1 ? 's' : ''}`)
+        : null
+    ));
+
+    const liste = el('div', { class: 'check-list' });
+    for (const a of [...erreurs, ...avertissements]) {
+      const ligne = el('div', { class: `check-item ${a.severity}` },
+        el('span', { class: 'marker' }, a.severity === SEVERITES.ERREUR ? '!' : '·'),
+        el('span', { class: 'texte' }, a.message)
+      );
+      if (a.nodeId && Scenario.getNode(a.nodeId)) {
+        // Cliquable : on va droit au nœud fautif.
+        ligne.classList.add('clickable');
+        ligne.setAttribute('role', 'button');
+        ligne.setAttribute('tabindex', '0');
+        const aller = () => { Editor.selectNode(a.nodeId); Editor.centerOn(a.nodeId); };
+        ligne.addEventListener('click', aller);
+        ligne.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); aller(); } });
+      }
+      liste.appendChild(ligne);
+    }
+    section.appendChild(liste);
+    return section;
   },
 
   renderAssetsTab() {
@@ -1679,10 +1924,12 @@ const Inspector = {
           ),
           el('button', {
             class: 'del',
-            onclick: () => {
-              if (confirm(`Supprimer ${a.name} ?`)) {
+            onclick: async () => {
+              if (await Modal.confirm(`Supprimer « ${a.name} » ?`,
+                                      { titre: 'Supprimer le média', valider: 'Supprimer', danger: true })) {
                 AssetStore.remove(a.id).catch(console.error);
                 Scenario.removeAsset(a.id);
+                Inspector.render();
               }
             }
           }, '✕')
@@ -1770,12 +2017,16 @@ const Editor = {
       </div>
       <div class="center" id="center">
         <div class="pane" id="pane-map">
-          <div class="pane-header"><span class="dot"></span>Carte <span class="count" id="map-count">0</span></div>
+          <div class="pane-header"><span class="dot"></span>Carte <span class="count" id="map-count">0</span><span class="route-info" id="route-info"></span></div>
           <div id="map"></div>
         </div>
         <div class="resizer" id="resizer"></div>
         <div class="pane" id="pane-graph">
           <div class="pane-header"><span class="dot" style="background:var(--forest)"></span>Graphe <span class="count" id="graph-count">0</span></div>
+          <div class="history-controls" id="history-controls">
+            <button id="undo-btn" title="Annuler (Ctrl+Z)" aria-label="Annuler" disabled>↶</button>
+            <button id="redo-btn" title="Rétablir (Ctrl+Maj+Z)" aria-label="Rétablir" disabled>↷</button>
+          </div>
           <div id="graph" tabindex="0"></div>
         </div>
       </div>
@@ -1801,6 +2052,29 @@ const Editor = {
     $('#tuto-help', container).addEventListener('click', () => Tutorial.start(true));
     this.backdropEl.addEventListener('click', () => this._closeInspector());
 
+    // Annuler / rétablir
+    const undoBtn = $('#undo-btn', container);
+    const redoBtn = $('#redo-btn', container);
+    undoBtn.addEventListener('click', () => this.annuler());
+    redoBtn.addEventListener('click', () => this.retablir());
+    const majBoutons = () => {
+      undoBtn.disabled = !History.peutAnnuler;
+      redoBtn.disabled = !History.peutRetablir;
+    };
+    this._unsubHistory = History.on(majBoutons);
+    majBoutons();
+
+    this._raccourcis = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const cible = e.target;
+      // Dans un champ, Ctrl+Z appartient au navigateur.
+      if (cible && (cible.tagName === 'INPUT' || cible.tagName === 'TEXTAREA' || cible.isContentEditable)) return;
+      const touche = e.key.toLowerCase();
+      if (touche === 'z' && !e.shiftKey) { e.preventDefault(); this.annuler(); }
+      else if ((touche === 'z' && e.shiftKey) || touche === 'y') { e.preventDefault(); this.retablir(); }
+    };
+    document.addEventListener('keydown', this._raccourcis);
+
     this._buildPalette();
     this._initMap();
     this._initGraph();
@@ -1816,24 +2090,49 @@ const Editor = {
     // désabonnement : sans elle, chaque montage laissait un abonné
     // derrière lui et `load` rejouait N reconstructions.
     this._unsubscribe = Scenario.on((evt) => {
-      if (evt === 'load') this.rebuild();
-      else if (['nodeAdded', 'nodeRemoved', 'linkAdded', 'linkRemoved'].includes(evt)) {
+      if (evt === 'load') { this.rebuild(); return; }
+      if (['nodeAdded', 'nodeRemoved', 'linkAdded', 'linkRemoved', 'metaUpdated'].includes(evt)) {
+        this._ordre = graphOrder(Scenario.current);
+        this._refreshNumbers();
+        this.drawRoute();
         this._updateCounts();
       }
     });
   },
 
   /** Contrepartie exacte de mount() : appelée par App.render() en sortie de vue. */
+  annuler() {
+    if (!History.annuler()) { Toast.info('Rien à annuler'); return; }
+    Toast.info('Annulé');
+  },
+
+  retablir() {
+    if (!History.retablir()) { Toast.info('Rien à rétablir'); return; }
+    Toast.info('Rétabli');
+  },
+
   unmount() {
     this._unsubscribe?.();
     this._unsubscribe = null;
+    this._unsubHistory?.();
+    this._unsubHistory = null;
+    if (this._raccourcis) {
+      document.removeEventListener('keydown', this._raccourcis);
+      this._raccourcis = null;
+    }
     this._exitPlacement();
     this._saveArea();
     if (this.map) {
+      // Une animation de zoom en cours (« Centrer la carte », un clic dans
+      // la vérification) se terminait après la destruction de la carte :
+      // Leaflet cherchait alors la position d'un panneau disparu.
+      try { this.map.stop(); } catch (e) { /* rien en cours */ }
       try { this.map.remove(); } catch (e) { /* déjà détruite */ }
       this.map = null;
     }
     this.tileLayer = null;
+    this._routeLayer = null;
+    this._ordre = null;
     // Drawflow 0.0.60 n'expose pas de destroy(). On coupe la référence :
     // les handlers d'une instance périmée sont neutralisés par le garde
     // d'identité posé dans _initGraph().
@@ -2134,6 +2433,8 @@ const Editor = {
     // (import d'un ZIP depuis l'accueil) : il n'y a alors rien à rebâtir.
     if (!this.map || !this.drawflow) return;
 
+    this._ordre = graphOrder(Scenario.current);
+
     // Clear markers
     Object.values(this.markers).forEach(m => m.remove());
     this.markers = Object.create(null);
@@ -2145,7 +2446,9 @@ const Editor = {
 
     // Re-centrer carte
     const area = Scenario.current.meta.area;
-    if (area?.center) this.map.setView(area.center, area.zoom || 13);
+    // Reconstruction : on repositionne sèchement, sans transition. Une
+    // animation lancée ici pouvait s'achever après la destruction de la carte.
+    if (area?.center) this.map.setView(area.center, area.zoom || 13, { animate: false });
 
     // Re-ajouter nœuds
     Scenario.current.nodes.forEach(n => {
@@ -2166,15 +2469,59 @@ const Editor = {
     });
     this._suppressConnectionEvent = false;
 
+    this.drawRoute();
     this._updateCounts();
     Inspector.render();
+  },
+
+  /**
+   * Trace le parcours sur la carte. Sans lui, l'auteur ne voyait que des
+   * marqueurs isolés : ni l'ordre, ni les distances, ni ce que son
+   * itinéraire donne réellement sur le terrain.
+   */
+  drawRoute() {
+    if (!this.map) return;
+    if (this._routeLayer) { this.map.removeLayer(this._routeLayer); this._routeLayer = null; }
+
+    const segments = routeSegments(Scenario.current);
+    if (!segments.length) { this._updateRouteInfo(0); return; }
+
+    const layer = L.layerGroup();
+    for (const seg of segments) {
+      // Trait plein pour le chemin normal, pointillé pour les branches
+      // conditionnelles : elles ne seront pas parcourues à chaque partie.
+      L.polyline(seg.coords, {
+        color: seg.conditional ? cssVar('--ink-faint', '#615748') : cssVar('--forest', '#4a6b3d'),
+        weight: seg.conditional ? 2 : 3,
+        opacity: seg.conditional ? 0.55 : 0.75,
+        dashArray: seg.conditional ? '4 6' : null,
+        interactive: false
+      }).addTo(layer);
+    }
+    layer.addTo(this.map);
+    this._routeLayer = layer;
+    // La couche du tracé passe sous les marqueurs.
+    layer.eachLayer(l => l.bringToBack?.());
+    this._updateRouteInfo(mainRouteDistance(Scenario.current));
+  },
+
+  _updateRouteInfo(metres) {
+    const el2 = $('#route-info', this.container);
+    if (!el2) return;
+    if (!metres) { el2.textContent = ''; return; }
+    el2.textContent = metres >= 1000
+      ? `${(metres / 1000).toFixed(2)} km`
+      : `${Math.round(metres)} m`;
   },
 
   _addToMap(node) {
     if (!hasPosition(node)) return;
     if (node.type === 'intro' || node.type === 'outro') return;
 
-    const idx = Scenario.current.nodes.indexOf(node) + 1;
+    // Le numéro vient de l'ordre de parcours, pas de l'ordre de création :
+    // celui du tableau se décalait à la première suppression et n'apprenait
+    // rien à l'auteur.
+    const idx = this._ordre?.get(node.id) ?? (Scenario.current.nodes.indexOf(node) + 1);
     const icon = L.divIcon({
       className: `node-marker type-${node.type}`,
       html: String(idx),
@@ -2189,6 +2536,7 @@ const Editor = {
     marker.on('dragend', () => {
       const ll = marker.getLatLng();
       Scenario.updateNode(node.id, { position: { lat: ll.lat, lng: ll.lng } });
+      this.drawRoute();
       Inspector.render();
     });
 
@@ -2219,7 +2567,7 @@ const Editor = {
   },
 
   // --- API publique ---
-  refreshNode(nodeId) {
+  refreshNode(nodeId, opts = {}) {
     const node = Scenario.getNode(nodeId);
     if (!node) return;
     // Map
@@ -2242,6 +2590,15 @@ const Editor = {
       const icon = m._icon;
       if (icon) icon.classList.toggle('selected', id === this.selectedNodeId);
     });
+    if (opts.route !== false) this.drawRoute();
+  },
+
+  /** Réécrit le numéro affiché sur chaque marqueur. */
+  _refreshNumbers() {
+    for (const [id, marker] of Object.entries(this.markers)) {
+      const icone = marker._icon;
+      if (icone) icone.textContent = String(this._ordre?.get(id) ?? '');
+    }
   },
 
   selectNode(nodeId) {
@@ -2344,7 +2701,10 @@ const Editor = {
   centerOn(nodeId) {
     const node = Scenario.getNode(nodeId);
     if (!hasPosition(node)) { Toast.warn('Ce nœud n\'a pas encore de position'); return; }
-    this.map.setView([node.position.lat, node.position.lng], Math.max(this.map.getZoom(), 16));
+    // Sans animation : le mouvement se termine parfois après un changement
+    // de vue, et Leaflet cherche alors la position d'une carte détruite.
+    this.map.setView([node.position.lat, node.position.lng],
+                     Math.max(this.map.getZoom(), 16), { animate: false });
   },
 
   setTileProvider(providerId) {
@@ -2366,12 +2726,18 @@ const Editor = {
     const maxZ = Math.min(provider.maxZoom || 18, currentZoom + 3);
     const est = TileCache.estimate(bounds, minZ, maxZ);
 
-    const confirmMsg = `${est} tuiles à télécharger (zooms ${minZ}→${maxZ}) via "${provider.name}".\nDurée estimée : ~${Math.round(est * 0.12 / 60 * 10) / 10} min.\nContinuer ?`;
-    if (est > 3000) {
-      if (!confirm(`${est} tuiles, c'est beaucoup. Dézoome un peu pour cibler plus petit. Continuer quand même ?`)) return;
-    } else {
-      if (!confirm(confirmMsg)) return;
-    }
+    // Quatre requêtes en vol : l'estimation suit le débit réel.
+    const minutes = Math.max(0.1, Math.round(est * 0.12 / 4 / 60 * 10) / 10);
+    const ok = await Modal.confirm(
+      `${est} tuiles à télécharger (zooms ${minZ} à ${maxZ}) via « ${provider.name} ».`,
+      {
+        titre: 'Pré-cacher la zone',
+        valider: est > 3000 ? 'Télécharger quand même' : 'Télécharger',
+        detail: est > 3000
+          ? `Durée estimée : ~${minutes} min. C'est beaucoup — dézoomer un peu ciblerait une zone plus petite.`
+          : `Durée estimée : ~${minutes} min.`
+      });
+    if (!ok) return;
 
     let cancelled = false;
     Modal.show((modal, close) => {
@@ -2474,15 +2840,65 @@ const Editor = {
 // Modal — dialogues
 // ============================================================
 const Modal = {
-  show(contentFn) {
+  show(contentFn, opts = {}) {
+    const renduAvant = document.activeElement;
     const backdrop = el('div', { class: 'modal-backdrop' });
-    const modal = el('div', { class: 'modal' });
+    const modal = el('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', tabindex: '-1' });
     backdrop.appendChild(modal);
+
+    const close = (resultat) => {
+      document.removeEventListener('keydown', onKey, true);
+      backdrop.remove();
+      // On rend le focus à ce qui a ouvert la boîte : sans cela, la
+      // navigation au clavier repart du début du document.
+      if (renduAvant?.isConnected) renduAvant.focus?.();
+      opts.onClose?.(resultat);
+    };
+
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); close(); return; }
+      if (e.key !== 'Tab') return;
+      // Piège à focus : tant que la boîte est ouverte, la tabulation
+      // tourne à l'intérieur.
+      const cibles = $$('a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])', modal)
+        .filter(n => n.offsetParent !== null || n === document.activeElement);
+      if (!cibles.length) { e.preventDefault(); return; }
+      const premier = cibles[0], dernier = cibles[cibles.length - 1];
+      if (e.shiftKey && document.activeElement === premier) { e.preventDefault(); dernier.focus(); }
+      else if (!e.shiftKey && document.activeElement === dernier) { e.preventDefault(); premier.focus(); }
+    };
+    document.addEventListener('keydown', onKey, true);
+
     backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
     document.body.appendChild(backdrop);
-    function close() { backdrop.remove(); }
     contentFn(modal, close);
+
+    const premierChamp = $('input, textarea, select, button', modal);
+    (premierChamp || modal).focus?.();
     return close;
+  },
+
+  /**
+   * Remplace `confirm()` : celui-ci bloque le fil d'exécution, casse le
+   * design et se fait ignorer dans certains contextes embarqués.
+   * @returns {Promise<boolean>}
+   */
+  confirm(message, { titre = 'Confirmer', valider = 'Confirmer', danger = false, detail = null } = {}) {
+    return new Promise(resolve => {
+      let reponse = false;
+      this.show((modal, close) => {
+        modal.appendChild(el('h3', {}, titre));
+        modal.appendChild(el('p', { class: 'sub' }, message));
+        if (detail) modal.appendChild(el('p', { style: { fontSize: '12.5px', color: 'var(--ink-soft)' } }, detail));
+        modal.appendChild(el('div', { class: 'btn-row', style: { marginTop: '18px', justifyContent: 'flex-end' } },
+          el('button', { class: 'btn ghost', onclick: () => close() }, 'Annuler'),
+          el('button', {
+            class: 'btn ' + (danger ? 'ghost danger' : 'accent'),
+            onclick: () => { reponse = true; close(); }
+          }, valider)
+        ));
+      }, { onClose: () => resolve(reponse) });
+    });
   },
 
   conditionEditor(link, onSave) {
@@ -2538,6 +2954,112 @@ const Modal = {
         }, 'Enregistrer')
       ));
     });
+  }
+};
+
+// ============================================================
+// QR — génération et planche à imprimer
+// ============================================================
+const QR = {
+  /** Alphabet sans caractères ambigus : ni O/0, ni I/1/l. */
+  ALPHABET: 'ABCDEFGHJKMNPQRSTUVWXYZ23456789',
+
+  /**
+   * Code aléatoire pour un point de contrôle. « eglise » se devine ;
+   * un code tiré au sort, non.
+   */
+  code(longueur = 6) {
+    const octets = crypto.getRandomValues(new Uint8Array(longueur));
+    return [...octets].map(o => this.ALPHABET[o % this.ALPHABET.length]).join('');
+  },
+
+  /** QR en SVG : net à l'impression, quelle que soit la taille. */
+  svg(texte, { taille = 150, marge = 4 } = {}) {
+    const q = qrcode(0, 'M');   // version auto, correction moyenne
+    q.addData(String(texte));
+    q.make();
+    const n = q.getModuleCount();
+    const total = n + marge * 2;
+
+    let chemin = '';
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        if (q.isDark(y, x)) chemin += `M${x + marge},${y + marge}h1v1h-1z`;
+      }
+    }
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', `0 0 ${total} ${total}`);
+    svg.setAttribute('width', taille);
+    svg.setAttribute('height', taille);
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', `QR code : ${texte}`);
+    svg.innerHTML =
+      `<rect width="${total}" height="${total}" fill="#fff"/>` +
+      `<path d="${chemin}" fill="#000" shape-rendering="crispEdges"/>`;
+    return svg;
+  },
+
+  /** Nœuds dont la validation attend un QR. */
+  nodesToPrint(scn) {
+    const ordre = graphOrder(scn);
+    return scn.nodes
+      .filter(n => n.validation?.type === 'qr')
+      .sort((a, b) => (ordre.get(a.id) || 0) - (ordre.get(b.id) || 0))
+      .map(n => ({ node: n, numero: ordre.get(n.id) }));
+  },
+
+  /**
+   * Planche A4 prête à imprimer. L'auteur devait jusqu'ici sortir de
+   * l'application, trouver un générateur en ligne et produire ses codes
+   * un par un — en espérant n'avoir pas fait de faute de frappe.
+   */
+  printSheet(scn) {
+    const aImprimer = this.nodesToPrint(scn);
+    if (!aImprimer.length) {
+      Toast.warn('Aucun nœud ne valide par QR code');
+      return;
+    }
+    const sansValeur = aImprimer.filter(({ node }) => !String(node.validation.value || '').trim());
+    if (sansValeur.length) {
+      Toast.warn(`${sansValeur.length} nœud(s) sans contenu de QR : ils sont ignorés`);
+    }
+    const prets = aImprimer.filter(({ node }) => String(node.validation.value || '').trim());
+    if (!prets.length) return;
+
+    document.getElementById('qr-sheet')?.remove();
+    const sheet = el('div', { id: 'qr-sheet', class: 'qr-sheet' });
+    sheet.appendChild(el('div', { class: 'qr-sheet-header' },
+      el('h1', {}, scn.meta.title || 'Parcours'),
+      el('p', {}, `${prets.length} point(s) à poser · imprimé le ${formatDate(Date.now())}`)
+    ));
+
+    const grille = el('div', { class: 'qr-grid' });
+    for (const { node, numero } of prets) {
+      const valeur = String(node.validation.value).trim();
+      grille.appendChild(el('div', { class: 'qr-card' },
+        el('div', { class: 'qr-num' }, `${numero}`),
+        this.svg(valeur, { taille: 190 }),
+        el('div', { class: 'qr-title' }, node.title),
+        el('div', { class: 'qr-value' }, valeur),
+        hasPosition(node)
+          ? el('div', { class: 'qr-coords' }, `${node.position.lat.toFixed(5)}, ${node.position.lng.toFixed(5)}`)
+          : el('div', { class: 'qr-coords' }, 'sans position')
+      ));
+    }
+    sheet.appendChild(grille);
+    document.body.appendChild(sheet);
+    document.body.classList.add('printing');
+
+    const nettoyer = () => {
+      document.body.classList.remove('printing');
+      sheet.remove();
+      window.removeEventListener('afterprint', nettoyer);
+    };
+    window.addEventListener('afterprint', nettoyer);
+    // Repli si afterprint ne se déclenche pas (certains navigateurs mobiles).
+    setTimeout(() => { if (document.body.classList.contains('printing')) nettoyer(); }, 60000);
+
+    window.print();
   }
 };
 
@@ -2717,6 +3239,7 @@ const Player = {
     this.cleanup();
     this.container = container;
     this.scenario = Scenario.current;
+    this._routeLength = null;
 
     if (!this.scenario || !this.scenario.nodes || this.scenario.nodes.length === 0) {
       this._renderEmpty(opts);
@@ -2756,6 +3279,7 @@ const Player = {
       this.qrAnimFrame = null;
     }
     if (this._playerMap) {
+      try { this._playerMap.stop(); } catch (e) {}
       try { this._playerMap.remove(); } catch (e) {}
       this._playerMap = null;
     }
@@ -2867,8 +3391,11 @@ const Player = {
       el('button', {
         class: 'btn-huge',
         style: { background: 'transparent', color: 'var(--ink)', border: '1px solid var(--line)' },
-        onclick: () => {
-          if (confirm('Recommencer depuis le début ? La progression actuelle sera effacée.')) {
+        onclick: async () => {
+          if (await Modal.confirm('Recommencer depuis le début ?', {
+            titre: 'Repartir à zéro', valider: 'Recommencer', danger: true,
+            detail: 'La progression en cours sera effacée.'
+          })) {
             PlayerState.clear(this.scenario.id);
             this._renderStart({ test: false });
           }
@@ -2898,7 +3425,7 @@ const Player = {
     this._renderNode();
   },
 
-  _completeNode(answer = null, correct = true, flagsToSet = []) {
+  _completeNode(answer = null, correct = true, flagsSupplementaires = []) {
     const last = this.state.history[this.state.history.length - 1];
     if (last) {
       last.completedAt = Date.now();
@@ -2907,7 +3434,12 @@ const Player = {
     }
     this.state.lastAnswerCorrect = correct;
     if (answer != null) this.state.answers[this.state.currentNodeId] = answer;
-    flagsToSet.forEach(f => { if (!this.state.flags.includes(f)) this.state.flags.push(f); });
+    // Les flags déclarés sur le nœud sont posés ici : c'est ce qui rendait
+    // les conditions « si flag » et les checkpoints inertes jusqu'ici.
+    const aPoser = [...flagsSetBy(Scenario.getNode(this.state.currentNodeId)), ...flagsSupplementaires];
+    const nouveaux = aPoser.filter(f => !this.state.flags.includes(f));
+    nouveaux.forEach(f => this.state.flags.push(f));
+    if (nouveaux.length) Toast.ok(`Acquis : ${nouveaux.join(', ')}`);
     PlayerState.save(this.state);
 
     const currentNode = Scenario.getNode(this.state.currentNodeId);
@@ -2977,13 +3509,15 @@ const Player = {
     );
     w.appendChild(meta);
 
-    // Progress
-    const total = this.scenario.nodes.length;
+    // Progression : le dénominateur est la longueur du chemin, pas le
+    // nombre de nœuds — avec des branches, ce dernier est faux par
+    // construction (12 nœuds dont 4 variantes affichaient « 8 / 12 »).
+    const total = this._routeLength ??= mainRouteLength(this.scenario);
     const current = this.state.history.length;
     const prog = el('div', { class: 'play-progress' },
       el('span', {}, `Étape ${current}`),
-      el('span', { class: 'bar', style: { '--pct': Math.min(100, (current / total) * 100) + '%' } }),
-      el('span', {}, `${total}`)
+      el('span', { class: 'bar', style: { '--pct': Math.min(100, (current / Math.max(total, current)) * 100) + '%' } }),
+      el('span', {}, `${Math.max(total, current)}`)
     );
     w.appendChild(prog);
 
@@ -3022,6 +3556,8 @@ const Player = {
         class: 'btn-huge accent',
         onclick: () => this._endGame()
       }, 'Terminer'));
+    } else if (node.type === 'checkpoint' && missingFlags(node, this.state.flags).length) {
+      this._buildCheckpointBlocked(valWrap, node);
     } else if (node.type === 'enigme') {
       this._buildEnigmeUI(valWrap, node);
     } else {
@@ -3055,8 +3591,11 @@ const Player = {
         ? el('button', { class: 'btn ghost', onclick: () => location.hash = 'editor' }, '← Retour à l\'éditeur')
         : el('button', {
           class: 'btn ghost',
-          onclick: () => {
-            if (confirm('Quitter la partie ? La progression est sauvegardée, tu pourras reprendre.')) {
+          onclick: async () => {
+            if (await Modal.confirm('Quitter la partie ?', {
+              titre: 'Quitter', valider: 'Quitter',
+              detail: 'La progression est sauvegardée : tu pourras reprendre où tu en étais.'
+            })) {
               this.cleanup();
               location.hash = 'home';
             }
@@ -3097,10 +3636,13 @@ const Player = {
         pos => {
           const ll = [pos.coords.latitude, pos.coords.longitude];
           if (!playerMarker) {
+            // Même raison qu'ailleurs : un token CSS ne se résout pas
+            // dans un attribut SVG.
+            const rust = cssVar('--rust', '#b0613a');
             playerMarker = L.circleMarker(ll, {
               radius: 7,
-              color: 'var(--rust)',
-              fillColor: 'var(--rust)',
+              color: rust,
+              fillColor: rust,
               fillOpacity: 0.85,
               weight: 2
             }).addTo(map);
@@ -3115,6 +3657,38 @@ const Player = {
   },
 
   // ---------- Validations ----------
+
+  /**
+   * Un checkpoint dont les prérequis manquent ne se franchit pas. On dit
+   * lesquels manquent : une équipe bloquée sans explication abandonne.
+   */
+  _buildCheckpointBlocked(container, node) {
+    const manquants = missingFlags(node, this.state.flags);
+    container.appendChild(el('div', { class: 'play-status warn' },
+      `Il manque ${manquants.length === 1 ? 'un élément' : `${manquants.length} éléments`} pour passer.`
+    ));
+    const liste = el('div', { class: 'checkpoint-flags' });
+    for (const f of flagsRequiredBy(node)) {
+      const acquis = this.state.flags.includes(f);
+      liste.appendChild(el('div', { class: 'flag-line' + (acquis ? ' acquis' : '') },
+        el('span', { class: 'coche' }, acquis ? '✓' : '○'),
+        el('span', {}, f)
+      ));
+    }
+    container.appendChild(liste);
+
+    const revenir = Scenario.getLinksTo(node.id).length > 0;
+    container.appendChild(el('button', {
+      class: 'btn-huge',
+      onclick: () => {
+        // On renvoie l'équipe au nœud précédent de son propre historique.
+        const precedent = [...this.state.history].reverse().find(h => h.nodeId !== node.id);
+        if (precedent && Scenario.getNode(precedent.nodeId)) this._enterNode(precedent.nodeId);
+        else Toast.info('Va chercher ce qu\'il te manque, puis reviens.');
+      }
+    }, revenir ? '← Retourner en arrière' : 'Compris'));
+  },
+
   _buildNoneUI(container, node) {
     container.appendChild(el('button', {
       class: 'btn-huge forest',
@@ -3297,8 +3871,11 @@ const Player = {
     }, `Coordonnées cibles : ${node.position.lat.toFixed(5)}, ${node.position.lng.toFixed(5)}`));
     wrap.appendChild(el('button', {
       class: 'btn-huge',
-      onclick: () => {
-        if (confirm('Valider manuellement l\'arrivée à ce point ?')) {
+      onclick: async () => {
+        if (await Modal.confirm('Valider manuellement l\'arrivée à ce point ?', {
+          titre: 'Validation manuelle', valider: 'Je confirme',
+          detail: 'À n\'utiliser que si le GPS ne répond pas : la validation sera notée comme manuelle.'
+        })) {
           this._completeNode({ type: 'gps_manual', distance: lastDist }, true);
         }
       }
@@ -3460,6 +4037,26 @@ const Player = {
     });
     panel.appendChild(jumpSelect);
 
+    // Flags détenus — sans cela on teste un branchement à l'aveugle.
+    const tousFlags = allFlags(this.scenario);
+    if (tousFlags.length) {
+      const ligne = el('div', { class: 'test-flags' });
+      ligne.appendChild(el('span', { class: 'etiquette' }, 'Flags :'));
+      for (const f of tousFlags) {
+        const actif = this.state.flags.includes(f);
+        ligne.appendChild(el('button', {
+          class: 'flag-toggle' + (actif ? ' actif' : ''),
+          title: actif ? 'Retirer ce flag' : 'Poser ce flag',
+          onclick: () => {
+            this.state.flags = actif ? this.state.flags.filter(x => x !== f) : [...this.state.flags, f];
+            PlayerState.save(this.state);
+            this._renderNode();
+          }
+        }, f));
+      }
+      panel.appendChild(ligne);
+    }
+
     // Infos liens sortants
     const outLinks = Scenario.getLinksFrom(node.id);
     if (outLinks.length) {
@@ -3527,13 +4124,15 @@ const Player = {
 
     endCard.appendChild(el('div', { class: 'btn-row' },
       el('button', { class: 'btn accent', onclick: () => this._shareWhatsApp(results) }, '💬 Partager WhatsApp'),
+      el('button', { class: 'btn ghost', onclick: () => location.hash = 'results' }, 'Comparer les équipes'),
       el('button', { class: 'btn', onclick: () => this._exportResults(results) }, '⬇ Exporter JSON'),
       el('button', {
         class: 'btn ghost',
-        onclick: () => {
+        onclick: async () => {
           if (this.state.testMode) {
             location.hash = 'editor';
-          } else if (confirm('Recommencer une nouvelle partie ?')) {
+          } else if (await Modal.confirm('Recommencer une nouvelle partie ?',
+                                         { titre: 'Nouvelle partie', valider: 'Recommencer' })) {
             PlayerState.clear(this.scenario.id);
             this.mount(this.container, { test: false });
           }
@@ -3598,6 +4197,138 @@ const Player = {
   },
 
   // ---------- Helpers ----------
+};
+
+// ============================================================
+// Results — comparer les copies de plusieurs équipes
+// ============================================================
+const Results = {
+  mount(container) {
+    this.container = container;
+    this.classement = null;
+    this.render();
+  },
+
+  render() {
+    this.container.innerHTML = '';
+    const w = el('div', { class: 'results-wrapper' });
+
+    w.appendChild(el('div', { class: 'home-hero', style: { marginBottom: '28px' } },
+      el('h1', {}, 'Comparer les ', el('em', {}, 'copies')),
+      el('p', { class: 'subtitle' },
+        'Dépose les fichiers de résultats exportés par chaque équipe : le classement se construit ici, hors ligne.')
+    ));
+
+    const drop = el('div', { class: 'upload-drop' },
+      el('strong', {}, 'Déposer ou cliquer'),
+      'Fichiers .json exportés en fin de partie'
+    );
+    drop.addEventListener('click', () => this._choisirFichiers());
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('dragging'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('dragging'));
+    drop.addEventListener('drop', e => {
+      e.preventDefault();
+      drop.classList.remove('dragging');
+      this._lireFichiers(e.dataTransfer.files);
+    });
+    w.appendChild(drop);
+
+    if (this.classement) w.appendChild(this._renderClassement());
+    this.container.appendChild(w);
+  },
+
+  _choisirFichiers() {
+    const input = el('input', {
+      type: 'file', accept: '.json,application/json', multiple: true,
+      onchange: e => this._lireFichiers(e.target.files)
+    });
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.click();
+    setTimeout(() => input.remove(), 1000);
+  },
+
+  async _lireFichiers(fileList) {
+    const lus = [];
+    for (const f of fileList) {
+      try { lus.push(JSON.parse(await f.text())); }
+      catch (e) { Toast.warn(`« ${f.name} » n'est pas un JSON lisible`); }
+    }
+    if (!lus.length) return;
+    this.classement = buildRanking(lus);
+    if (!this.classement.equipes.length) {
+      Toast.error('Aucun résultat exploitable dans ces fichiers');
+      this.classement = null;
+    } else {
+      if (this.classement.ignores) Toast.info(`${this.classement.ignores} fichier(s) ignoré(s)`);
+      if (this.classement.melange) Toast.warn('Ces résultats ne viennent pas tous du même parcours');
+    }
+    this.render();
+  },
+
+  _renderClassement() {
+    const c = this.classement;
+    const frag = el('div', { class: 'results-body' });
+
+    frag.appendChild(el('h2', { class: 'results-title' },
+      c.scenarioTitle || 'Résultats',
+      el('span', { class: 'count' }, `${c.equipes.length} équipe${c.equipes.length > 1 ? 's' : ''}`)
+    ));
+
+    const table = el('div', { class: 'ranking' });
+    table.appendChild(el('div', { class: 'ranking-head' },
+      el('span', {}, 'Rang'), el('span', {}, 'Équipe'),
+      el('span', {}, 'Temps'), el('span', {}, 'Étapes'), el('span', {}, 'Erreurs')
+    ));
+    for (const e of c.equipes) {
+      table.appendChild(el('div', { class: 'ranking-row' + (e.rang === 1 ? ' premier' : '') },
+        el('span', { class: 'rang' }, String(e.rang)),
+        el('span', { class: 'equipe' }, e.teamName),
+        el('span', { class: 'nombre' }, this._duree(e.durationSec)),
+        el('span', { class: 'nombre' }, String(e.totalSteps)),
+        el('span', { class: 'nombre' }, e.erreurs ? String(e.erreurs) : '—')
+      ));
+    }
+    frag.appendChild(table);
+
+    // Là où ça a bloqué : c'est ce qui sert à retoucher le parcours.
+    const stats = stepStats(c).sort((a, b) => b.dureeMoyenne - a.dureeMoyenne);
+    if (stats.length) {
+      frag.appendChild(el('h3', { class: 'results-subtitle' }, 'Où les équipes ont buté'));
+      const liste = el('div', { class: 'step-stats' });
+      const pire = stats[0].dureeMoyenne || 1;
+      for (const st of stats) {
+        liste.appendChild(el('div', { class: 'step-row' },
+          el('span', { class: 'titre' }, st.title || '(sans titre)'),
+          el('span', { class: 'barre' }, el('span', { style: { width: (st.dureeMoyenne / pire * 100) + '%' } })),
+          el('span', { class: 'nombre' }, this._duree(st.dureeMoyenne)),
+          el('span', { class: 'essais' }, st.essaisMoyens > 1 ? `${st.essaisMoyens}× en moyenne` : '')
+        ));
+      }
+      frag.appendChild(liste);
+    }
+
+    frag.appendChild(el('div', { class: 'btn-row', style: { marginTop: '20px' } },
+      el('button', { class: 'btn ghost', onclick: () => { this.classement = null; this.render(); } }, 'Vider'),
+      el('button', { class: 'btn', onclick: () => this._exporterCsv() }, '⬇ Export CSV')
+    ));
+    return frag;
+  },
+
+  _exporterCsv() {
+    const lignes = [['rang', 'equipe', 'duree_sec', 'etapes', 'essais', 'erreurs'].join(';')];
+    for (const e of this.classement.equipes) {
+      lignes.push([e.rang, `"${e.teamName.replace(/"/g, '""')}"`, e.durationSec, e.totalSteps, e.totalAttempts, e.erreurs].join(';'));
+    }
+    const blob = new Blob(['\ufeff' + lignes.join('\n')], { type: 'text/csv;charset=utf-8' });
+    IO._download(blob, `classement-${slugify(this.classement.scenarioTitle || 'parcours')}.csv`);
+    Toast.ok('Classement exporté');
+  },
+
+  _duree(sec) {
+    const m = Math.floor(sec / 60), s = sec % 60;
+    return m ? `${m}'${String(s).padStart(2, '0')}` : `${s}s`;
+  }
 };
 
 // ============================================================
@@ -3696,7 +4427,8 @@ const App = {
       el('nav', { class: 'nav' },
         el('a', { href: '#home', class: view === 'home' ? 'active' : '' }, 'Accueil'),
         el('a', { href: '#editor', class: view === 'editor' ? 'active' : '' }, 'Éditeur'),
-        el('a', { href: '#player', class: view === 'player' ? 'active' : '' }, 'Jouer')
+        el('a', { href: '#player', class: view === 'player' ? 'active' : '' }, 'Jouer'),
+        el('a', { href: '#results', class: view === 'results' ? 'active' : '' }, 'Résultats')
       ),
       el('div', { class: 'status' },
         el('span', { class: 'status-dot' }),
@@ -3713,6 +4445,10 @@ const App = {
       const v = el('div', { class: 'view-editor' });
       this.root.appendChild(v);
       Editor.mount(v);
+    } else if (view === 'results') {
+      const v = el('div', { class: 'view-results' });
+      this.root.appendChild(v);
+      Results.mount(v);
     } else if (view === 'player' || view === 'test') {
       const v = el('div', { class: 'view-player' });
       this.root.appendChild(v);
@@ -3819,6 +4555,22 @@ const App = {
           ),
           el('div', { class: 'lib-actions' },
             el('button', {
+              class: 'btn small',
+              title: 'Lancer une partie avec ce scénario',
+              onclick: async (e) => {
+                e.stopPropagation();
+                // Sur le téléphone d'un joueur, passer par l'éditeur pour
+                // lancer une partie n'a aucun sens.
+                if (!isCurrent) {
+                  const full = await Library.get(entry.id);
+                  if (!full) return;
+                  Scenario.load(full);
+                  Storage.setCurrent(full.id);
+                }
+                location.hash = 'player';
+              }
+            }, '▶ Jouer'),
+            el('button', {
               class: 'btn small ghost',
               onclick: async (e) => {
                 e.stopPropagation();
@@ -3832,7 +4584,10 @@ const App = {
               class: 'btn small ghost danger',
               onclick: async (e) => {
                 e.stopPropagation();
-                if (confirm(`Supprimer "${entry.title}" de la bibliothèque ?`)) {
+                if (await Modal.confirm(`Supprimer « ${entry.title} » de la bibliothèque ?`, {
+                  titre: 'Supprimer le scénario', valider: 'Supprimer', danger: true,
+                  detail: 'Cette suppression est définitive : pense à exporter le ZIP avant, si tu veux le garder.'
+                })) {
                   await AssetStore.removeForScenario(entry.id);
                   await Library.delete(entry.id);
                   this._renderHome(container);
@@ -3882,7 +4637,8 @@ function showDepsError(missing) {
     </div>`;
 }
 
-window.Parcours = { App, Scenario, Editor, Inspector, Player, PlayerState, IO, Library, Storage, TileCache, AssetStore, Offline, Toast };
+window.Parcours = { App, Scenario, Editor, Inspector, Player, PlayerState, IO, Library, Storage,
+                    TileCache, AssetStore, Offline, History, Modal, QR, Results, Toast };
 
 function boot() {
   const missing = checkDeps();

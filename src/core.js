@@ -4,8 +4,8 @@
    couvert par les tests (`node --test`).
    ========================================================== */
 
-export const APP_VERSION = '0.2';
-export const SCENARIO_VERSION = '0.2';
+export const APP_VERSION = '0.3';
+export const SCENARIO_VERSION = '0.3';
 
 export const NODE_TYPES = ['etape', 'enigme', 'checkpoint', 'intro', 'outro'];
 
@@ -173,6 +173,16 @@ export function onWrongBehaviour(node) {
 
 export const DEFAULT_PROVIDER = 'carto';
 
+function normaliseFlagList(raw) {
+  if (!Array.isArray(raw)) return [];
+  const vus = new Set();
+  for (const f of raw) {
+    const nom = String(f ?? '').trim();
+    if (nom) vus.add(nom);
+  }
+  return [...vus];
+}
+
 export function blankScenario() {
   return {
     version: SCENARIO_VERSION,
@@ -255,6 +265,10 @@ export function migrateScenario(raw) {
       node.question = String(n.question ?? '');
       node.answer = String(n.answer ?? '');
     }
+    // Flags : listes de noms, normalisées ici une fois pour toutes.
+    node.setsFlags = normaliseFlagList(n.setsFlags);
+    if (type === 'checkpoint') node.requiresFlags = normaliseFlagList(n.requiresFlags);
+    else delete node.requiresFlags;
     scn.nodes.push(node);
   }
 
@@ -307,4 +321,423 @@ export function migrateScenario(raw) {
   if (!seen.has(scn.meta.startNodeId)) scn.meta.startNodeId = null;
 
   return scn;
+}
+
+/* ==========================================================
+   Analyse du graphe
+   ========================================================== */
+
+/** Index { source -> liens } pour éviter les balayages répétés. */
+function linksBySource(scn) {
+  const map = new Map();
+  for (const l of scn.links) {
+    if (!map.has(l.source)) map.set(l.source, []);
+    map.get(l.source).push(l);
+  }
+  return map;
+}
+
+/**
+ * Ordre de visite depuis le nœud de départ, en largeur.
+ *
+ * C'est le seul numéro qui veut dire quelque chose pour l'auteur : la
+ * position dans le tableau `nodes` ne reflète que l'ordre de création, et
+ * se décale à la première suppression.
+ *
+ * @returns {Map<string, number>} nodeId -> numéro (à partir de 1)
+ */
+export function graphOrder(scn) {
+  const order = new Map();
+  if (!scn?.nodes?.length) return order;
+
+  const byId = new Map(scn.nodes.map(n => [n.id, n]));
+  const outgoing = linksBySource(scn);
+  const start = byId.has(scn.meta?.startNodeId) ? scn.meta.startNodeId : null;
+
+  let n = 1;
+  const queue = start ? [start] : [];
+  const seen = new Set(queue);
+  while (queue.length) {
+    const id = queue.shift();
+    order.set(id, n++);
+    for (const l of outgoing.get(id) || []) {
+      if (byId.has(l.target) && !seen.has(l.target)) { seen.add(l.target); queue.push(l.target); }
+    }
+  }
+  // Les nœuds hors du parcours gardent un numéro, à la suite, pour rester
+  // désignables — mais ils sont signalés par validateScenario().
+  for (const node of scn.nodes) if (!order.has(node.id)) order.set(node.id, n++);
+  return order;
+}
+
+/** Ensemble des nœuds atteignables depuis le départ. */
+export function reachableNodes(scn) {
+  const reachable = new Set();
+  const startId = scn?.meta?.startNodeId;
+  if (!startId || !scn.nodes.some(n => n.id === startId)) return reachable;
+  const outgoing = linksBySource(scn);
+  const queue = [startId];
+  reachable.add(startId);
+  while (queue.length) {
+    const id = queue.shift();
+    for (const l of outgoing.get(id) || []) {
+      if (!reachable.has(l.target)) { reachable.add(l.target); queue.push(l.target); }
+    }
+  }
+  return reachable;
+}
+
+/**
+ * Segments géographiques du parcours : un par lien dont les deux extrémités
+ * sont positionnées. `distance` est en mètres.
+ */
+export function routeSegments(scn) {
+  const byId = new Map((scn?.nodes || []).map(n => [n.id, n]));
+  const segments = [];
+  for (const l of scn?.links || []) {
+    const a = byId.get(l.source);
+    const b = byId.get(l.target);
+    if (!hasPosition(a) || !hasPosition(b)) continue;
+    segments.push({
+      linkId: l.id,
+      from: a.id,
+      to: b.id,
+      conditional: !!l.condition,
+      coords: [[a.position.lat, a.position.lng], [b.position.lat, b.position.lng]],
+      distance: haversine(a.position.lat, a.position.lng, b.position.lat, b.position.lng)
+    });
+  }
+  return segments;
+}
+
+/**
+ * Longueur du chemin principal — celui qu'on suit en répondant juste,
+ * sans jamais emprunter de branche « si incorrect ».
+ */
+export function mainRouteDistance(scn) {
+  const byId = new Map((scn?.nodes || []).map(n => [n.id, n]));
+  const outgoing = linksBySource(scn);
+  let total = 0;
+  let id = scn?.meta?.startNodeId;
+  const seen = new Set();
+  while (id && byId.has(id) && !seen.has(id)) {
+    seen.add(id);
+    const links = outgoing.get(id) || [];
+    const next = links.find(l => l.condition?.type === 'correct')
+              || links.find(l => !l.condition)
+              || links[0];
+    if (!next) break;
+    const a = byId.get(id), b = byId.get(next.target);
+    if (hasPosition(a) && hasPosition(b)) {
+      total += haversine(a.position.lat, a.position.lng, b.position.lat, b.position.lng);
+    }
+    id = next.target;
+  }
+  return total;
+}
+
+/**
+ * Nombre d'étapes du chemin le plus court entre le départ et une fin
+ * (nœud outro, ou nœud sans lien sortant).
+ *
+ * Sert de dénominateur à la barre de progression : `nodes.length` était
+ * faux par construction dès qu'il y avait des branches.
+ */
+export function mainRouteLength(scn) {
+  const byId = new Map((scn?.nodes || []).map(n => [n.id, n]));
+  const startId = scn?.meta?.startNodeId;
+  if (!byId.has(startId)) return scn?.nodes?.length || 0;
+
+  const outgoing = linksBySource(scn);
+  const queue = [[startId, 1]];
+  const seen = new Set([startId]);
+  let finOutro = null;
+  let plusLoin = 1;
+
+  while (queue.length) {
+    const [id, depth] = queue.shift();
+    plusLoin = Math.max(plusLoin, depth);
+    // Une vraie fin, c'est un outro. Une impasse en est une aussi, mais
+    // c'est une anomalie (validateScenario la signale) : elle ne doit pas
+    // raccourcir la barre de progression de tout le monde.
+    if (byId.get(id)?.type === 'outro') {
+      finOutro = finOutro == null ? depth : Math.min(finOutro, depth);
+      continue;
+    }
+    for (const l of outgoing.get(id) || []) {
+      if (byId.has(l.target) && !seen.has(l.target)) { seen.add(l.target); queue.push([l.target, depth + 1]); }
+    }
+  }
+  return finOutro ?? plusLoin;
+}
+
+/* ==========================================================
+   Flags
+   ========================================================== */
+
+/** Flags qu'un nœud pose lorsqu'il est complété. */
+export function flagsSetBy(node) {
+  const raw = node?.setsFlags;
+  if (!Array.isArray(raw)) return [];
+  return raw.map(f => String(f || '').trim()).filter(Boolean);
+}
+
+/** Flags exigés par un checkpoint pour laisser passer. */
+export function flagsRequiredBy(node) {
+  if (node?.type !== 'checkpoint') return [];
+  const raw = node?.requiresFlags;
+  if (!Array.isArray(raw)) return [];
+  return raw.map(f => String(f || '').trim()).filter(Boolean);
+}
+
+/** Ce qui manque à une équipe pour franchir un checkpoint. */
+export function missingFlags(node, heldFlags = []) {
+  const held = new Set(heldFlags);
+  return flagsRequiredBy(node).filter(f => !held.has(f));
+}
+
+/** Tous les noms de flags employés dans un scénario, posés ou testés. */
+export function allFlags(scn) {
+  const flags = new Set();
+  for (const n of scn?.nodes || []) {
+    flagsSetBy(n).forEach(f => flags.add(f));
+    flagsRequiredBy(n).forEach(f => flags.add(f));
+  }
+  for (const l of scn?.links || []) {
+    if (l.condition?.type === 'flag' && l.condition.value) flags.add(l.condition.value);
+  }
+  return [...flags].sort();
+}
+
+/* ==========================================================
+   Vérification du parcours
+   ========================================================== */
+
+const ERREUR = 'erreur';
+const AVERTISSEMENT = 'avertissement';
+
+/** ASCII imprimable : ce que le décodeur embarqué sait relire. */
+const QR_SAFE = /^[\x20-\x7E]+$/;
+
+/** Le contenu d'un QR est-il relisible par le scanner de l'application ? */
+export function isQrValueSafe(valeur) {
+  const v = String(valeur ?? '').trim();
+  return v === '' || QR_SAFE.test(v);
+}
+
+/**
+ * Passe le scénario en revue avant export. Chaque anomalie porte le nœud
+ * concerné pour être cliquable depuis l'inspecteur.
+ *
+ * `erreur` : le parcours ne peut pas se jouer correctement.
+ * `avertissement` : jouable, mais probablement pas ce que l'auteur voulait.
+ */
+export function validateScenario(scn) {
+  const issues = [];
+  const add = (severity, message, nodeId = null) => issues.push({ severity, message, nodeId });
+  if (!scn) return issues;
+
+  const nodes = scn.nodes || [];
+  const links = scn.links || [];
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const outgoing = linksBySource(scn);
+
+  // --- Départ ---
+  if (!nodes.length) {
+    add(ERREUR, 'Le parcours ne contient aucun nœud.');
+    return issues;
+  }
+  if (!scn.meta?.startNodeId) {
+    add(ERREUR, 'Aucun nœud de départ défini : le Player ne saura pas par où commencer.');
+  } else if (!byId.has(scn.meta.startNodeId)) {
+    add(ERREUR, 'Le nœud de départ désigné n\'existe plus.');
+  }
+
+  // --- Fin ---
+  if (!nodes.some(n => n.type === 'outro')) {
+    add(AVERTISSEMENT, 'Aucun nœud outro : la partie se terminera sans écran de conclusion.');
+  }
+
+  // --- Accessibilité ---
+  const reachable = reachableNodes(scn);
+  if (reachable.size) {
+    for (const n of nodes) {
+      if (!reachable.has(n.id)) {
+        add(AVERTISSEMENT, `« ${n.title} » n'est atteignable depuis aucun chemin.`, n.id);
+      }
+    }
+  }
+
+  for (const n of nodes) {
+    const sortants = outgoing.get(n.id) || [];
+
+    // --- Impasses ---
+    if (n.type !== 'outro' && sortants.length === 0 && reachable.has(n.id)) {
+      add(ERREUR, `« ${n.title} » n'a aucun lien sortant : la partie s'arrêtera là.`, n.id);
+    }
+
+    // --- Contenu de validation ---
+    if (n.type !== 'intro' && n.type !== 'outro') {
+      const v = n.validation || {};
+      const valeur = String(v.value || '').trim();
+      if ((v.type === 'qr' || v.type === 'code') && !valeur) {
+        const quoi = v.type === 'qr' ? 'contenu de QR attendu' : 'code attendu';
+        add(ERREUR, `« ${n.title} » attend un ${quoi}, mais aucun n'est renseigné.`, n.id);
+      }
+      // Un QR accentué s'encode sans problème mais le décodeur embarqué le
+      // relit vide : sur le terrain, le scan ne correspondrait jamais.
+      if (v.type === 'qr' && valeur && !QR_SAFE.test(valeur)) {
+        add(ERREUR, `Le QR de « ${n.title} » contient des caractères que le scanner ne relit pas (accents, symboles). Utilise des lettres et chiffres simples.`, n.id);
+      }
+      if (v.type === 'gps' && !hasPosition(n)) {
+        add(ERREUR, `« ${n.title} » valide par proximité GPS mais n'a pas de position.`, n.id);
+      }
+      if (!hasPosition(n) && v.type !== 'none') {
+        add(AVERTISSEMENT, `« ${n.title} » n'a pas de position sur la carte.`, n.id);
+      }
+    }
+
+    // --- Énigmes ---
+    if (n.type === 'enigme') {
+      if (!String(n.question || '').trim()) {
+        add(AVERTISSEMENT, `« ${n.title} » n'a pas de question.`, n.id);
+      }
+      if (!String(n.answer || '').trim()) {
+        add(ERREUR, `« ${n.title} » n'a pas de réponse attendue : aucune saisie ne pourra être juste.`, n.id);
+      }
+    }
+
+    // --- Branches conditionnelles ---
+    const conditionnels = sortants.filter(l => l.condition);
+    const inconditionnels = sortants.filter(l => !l.condition);
+    if (conditionnels.length && !inconditionnels.length) {
+      const couvreIncorrect = conditionnels.some(l => l.condition.type === 'incorrect');
+      const couvreCorrect = conditionnels.some(l => l.condition.type === 'correct');
+      if (couvreCorrect && !couvreIncorrect) {
+        add(AVERTISSEMENT,
+          `« ${n.title} » n'a qu'une branche « si correct » et aucun repli : une mauvaise réponse n'aura nulle part où aller.`, n.id);
+      }
+    }
+    if (inconditionnels.length > 1) {
+      add(AVERTISSEMENT, `« ${n.title} » a ${inconditionnels.length} liens sans condition : seul le premier servira.`, n.id);
+    }
+
+    // --- Checkpoints ---
+    if (n.type === 'checkpoint') {
+      const requis = flagsRequiredBy(n);
+      if (!requis.length) {
+        add(AVERTISSEMENT, `« ${n.title} » est un checkpoint sans condition : il se comporte comme une étape.`, n.id);
+      }
+    }
+  }
+
+  // --- Flags : posés vs attendus ---
+  const poses = new Set();
+  for (const n of nodes) flagsSetBy(n).forEach(f => poses.add(f));
+  const attendus = new Map();
+  for (const l of links) {
+    if (l.condition?.type === 'flag' && l.condition.value) {
+      attendus.set(l.condition.value, byId.get(l.source));
+    }
+  }
+  for (const n of nodes) {
+    for (const f of flagsRequiredBy(n)) if (!attendus.has(f)) attendus.set(f, n);
+  }
+  for (const [flag, node] of attendus) {
+    if (!poses.has(flag)) {
+      add(ERREUR, `Le flag « ${flag} » est attendu mais aucun nœud ne le pose.`, node?.id || null);
+    }
+  }
+
+  // --- Médias ---
+  const assetIds = new Set((scn.assets || []).map(a => a.id));
+  const utilises = new Set();
+  for (const n of nodes) {
+    for (const k of ['image', 'audio']) {
+      const id = n.media?.[k];
+      if (!id) continue;
+      utilises.add(id);
+      if (!assetIds.has(id)) add(ERREUR, `« ${n.title} » référence un média absent.`, n.id);
+    }
+  }
+  for (const a of scn.assets || []) {
+    if (!utilises.has(a.id)) {
+      add(AVERTISSEMENT, `Le média « ${a.name} » n'est utilisé nulle part : il alourdit le ZIP pour rien.`);
+    }
+  }
+
+  return issues;
+}
+
+export const SEVERITES = { ERREUR, AVERTISSEMENT };
+
+/* ==========================================================
+   Résultats — agrégation multi-équipes
+   ========================================================== */
+
+/** Un fichier de résultats exporté est-il exploitable ? */
+export function isResultFile(data) {
+  return !!data && typeof data === 'object'
+      && typeof data.teamName === 'string'
+      && Array.isArray(data.path);
+}
+
+/**
+ * Classement d'un ensemble de fichiers de résultats.
+ *
+ * L'organisateur d'un événement à six équipes n'avait aucun moyen de
+ * comparer : chaque équipe repartait avec son JSON dans son coin.
+ */
+export function buildRanking(fichiers) {
+  const equipes = fichiers
+    .filter(isResultFile)
+    .filter(r => !r.testMode)
+    .map(r => ({
+      teamName: r.teamName,
+      scenarioTitle: r.scenarioTitle || '',
+      durationSec: Number(r.durationSec) || 0,
+      totalSteps: Number(r.totalSteps) || (r.path?.length ?? 0),
+      totalAttempts: Number(r.totalAttempts) || 0,
+      // Un essai par étape, c'est un sans-faute. Au-delà, il y a eu reprise.
+      erreurs: Math.max(0, (Number(r.totalAttempts) || 0) - (Number(r.totalSteps) || 0)),
+      endedAt: r.endedAt || null,
+      path: r.path || []
+    }));
+
+  // Le moins d'erreurs d'abord, le temps départage.
+  equipes.sort((a, b) => a.erreurs - b.erreurs || a.durationSec - b.durationSec);
+  equipes.forEach((e, i) => { e.rang = i + 1; });
+
+  const titres = [...new Set(equipes.map(e => e.scenarioTitle).filter(Boolean))];
+  return {
+    equipes,
+    scenarioTitle: titres.length === 1 ? titres[0] : null,
+    melange: titres.length > 1,
+    ignores: fichiers.length - equipes.length
+  };
+}
+
+/** Temps moyen passé sur chaque étape, tous participants confondus. */
+export function stepStats(classement) {
+  const parNoeud = new Map();
+  for (const equipe of classement.equipes) {
+    for (const etape of equipe.path) {
+      if (!parNoeud.has(etape.nodeId)) {
+        parNoeud.set(etape.nodeId, { nodeId: etape.nodeId, title: etape.title, type: etape.type, durees: [], essais: [] });
+      }
+      const e = parNoeud.get(etape.nodeId);
+      if (etape.durationSec != null) e.durees.push(etape.durationSec);
+      e.essais.push(etape.attempts || 0);
+    }
+  }
+  const moyenne = xs => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+  return [...parNoeud.values()].map(e => ({
+    nodeId: e.nodeId,
+    title: e.title,
+    type: e.type,
+    equipes: e.essais.length,
+    dureeMoyenne: Math.round(moyenne(e.durees)),
+    dureeMax: e.durees.length ? Math.max(...e.durees) : 0,
+    essaisMoyens: Math.round(moyenne(e.essais) * 10) / 10
+  }));
 }

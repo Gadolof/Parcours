@@ -2,7 +2,7 @@
 
 > Revue complète de `index.html` (5 612 lignes : CSS + SPA vanilla JS) à l'état du commit `0fbb3e2`.
 >
-> **Mise à jour — jalons 1 et 2 livrés.** Les constats B1 à B7 sont corrigés, le code est
+> **Mise à jour — les trois jalons sont livrés.** Les constats B1 à B7 sont corrigés, le code est
 > découpé (`styles.css`, `src/core.js`, `src/app.js`) et le noyau est couvert par
 > 43 tests. La vérification en navigateur qui a suivi a invalidé la prémisse de B4
 > (voir ci-dessous) et fait apparaître trois défauts d'affichage que la lecture
@@ -10,8 +10,16 @@
 >
 > Le jalon 2 rend la promesse hors ligne réelle : dépendances embarquées,
 > service worker, manifest, médias en Blob, index sur les tuiles. Vérifié
-> réseau coupé — 46 contrôles de bout en bout dans Chromium, en plus des
-> 43 tests du noyau.
+> réseau coupé.
+>
+> Le jalon 3 outille l'auteur : planche de QR à imprimer, vérification du
+> parcours avant export, tracé et distances sur la carte, annuler/rétablir,
+> flags rendus opérants, comparaison multi-équipes. Il a aussi révélé un
+> piège que la lecture n'avait pas vu : **un QR accentué s'encode mais le
+> décodeur embarqué le relit vide** — la vérification refuse désormais ces
+> valeurs (voir §01 ter).
+>
+> Couverture : 90 tests du noyau, 82 contrôles de bout en bout dans Chromium.
 
 ---
 
@@ -190,6 +198,31 @@ au-dessus de 1000 (`--z-modal: 1200`, `--z-tuto: 1300`, `--z-toast: 1400`).
 Dans la même famille : la feuille de Drawflow repeint le nœud sélectionné en
 rouge vif (`background: red`), ce que la règle du projet ne surchargeait pas —
 chaque clic sur un nœud produisait un aplat criard au milieu du carnet.
+
+## 1 ter. Le piège du QR accentué
+
+Découvert en jalon 3, en vérifiant que les QR produits se relisent avec le
+décodeur qu'utilise le joueur — un contrôle qui n'existait pas.
+
+Un contenu accentué (`Église`) produit un QR parfaitement valide : les octets
+UTF-8 sont bien encodés, un lecteur tiers le lirait. Mais **jsQR, le décodeur
+embarqué, renvoie une chaîne vide**. Sur le terrain, l'équipe scannerait le bon
+QR et la validation ne correspondrait jamais — sans le moindre message, puisque
+le code lu est simplement « pas le bon ».
+
+C'était d'autant plus atteignable que rien n'orientait l'auteur : le champ
+« contenu du QR attendu » est un texte libre, et écrire le nom du lieu est le
+premier réflexe.
+
+Trois réponses, toutes livrées :
+
+1. La vérification (§3.2) **refuse en erreur** un contenu de QR hors ASCII
+   imprimable, avec la raison.
+2. Un bouton **« code aléatoire »** tire un jeton dans un alphabet sans
+   caractères ambigus (ni `O`/`0`, ni `I`/`1`/`l`) — ce qui règle du même coup
+   le fait qu'un code devinable comme `eglise` n'en est pas un.
+3. Le test de bout en bout **encode puis redécode** chaque cas avec jsQR, pour
+   que la régression se voie.
 
 ## 2. Le trou principal : « hors ligne » n'existe pas — *résolu*
 
@@ -430,29 +463,33 @@ Génération des planches de QR (3.1), panneau de vérification (3.2), tracé et
 | B4 | Désynchronisation graphe/données sur Suppr | Élevée | Faible | ✅ corrigé |
 | B3 | Fuite de listeners entre navigations | Élevée | Faible | ✅ corrigé |
 | 4.1 | Assets en dataURL réécrits à chaque autosave | Élevée | Moyen | ✅ corrigé |
-| B5 | Flags : fonctionnalité morte exposée dans l'UI | Élevée | Faible | ⏳ jalon 3 |
+| B5 | Flags : fonctionnalité morte exposée dans l'UI | Élevée | Faible | ✅ corrigé |
 | 4.3 | `getAll('tiles')` pour compter (100 Mo en RAM) | Élevée | Faible | ✅ corrigé |
 | 5.1 / 5.2 | ZIP non validé, XSS via `node.type` | Élevée | Moyen | ✅ corrigé |
-| 3.1 | Pas de génération de QR codes | Élevée (produit) | Moyen | ⏳ jalon 3 |
+| 3.1 | Pas de génération de QR codes | Élevée (produit) | Moyen | ✅ corrigé |
 | B8 | Object URLs de tuiles jamais révoqués | Moyenne | Faible | ✅ corrigé |
 | 4.2 | Autosave complet à chaque panoramique | Moyenne | Faible | ✅ corrigé |
 | 4.5 | Scan QR pleine résolution à 60 fps | Moyenne | Faible | ✅ corrigé |
 | B7 | Position fantôme créée par l'inspecteur | Moyenne | Faible | ✅ corrigé |
 | §6 | Contrastes < AA, zoom désactivé | Moyenne | Faible | ✅ corrigé |
-| §6 | `confirm()` natifs, modales sans piège de focus | Moyenne | Faible | ⏳ jalon 3 |
-| 3.2 | Pas de vérification du parcours avant export | Moyenne (produit) | Moyen | ⏳ jalon 3 |
-| 3.5 | Parcours non tracé sur la carte | Moyenne (produit) | Moyen | ⏳ jalon 3 |
-| 3.3 | Pas d'annuler/rétablir | Moyenne (produit) | Moyen | ⏳ jalon 3 |
+| §6 | `confirm()` natifs, modales sans piège de focus | Moyenne | Faible | ✅ corrigé |
+| 3.2 | Pas de vérification du parcours avant export | Moyenne (produit) | Moyen | ✅ corrigé |
+| 3.5 | Parcours non tracé sur la carte | Moyenne (produit) | Moyen | ✅ corrigé |
+| 3.3 | Pas d'annuler/rétablir | Moyenne (produit) | Moyen | ✅ corrigé |
 | B9 | Race à l'export depuis la bibliothèque | Faible | Faible | ✅ corrigé |
-| B10 | Numérotation des marqueurs sans signification | Faible | Faible | ⏳ jalon 3 |
+| B10 | Numérotation des marqueurs sans signification | Faible | Faible | ✅ corrigé |
 | B11 | Inspecteur hors écran sur desktop | Bloquant | Faible | ✅ corrigé |
 | B12 | Bulle du tutoriel amputée sur mobile | Élevée | Faible | ✅ corrigé |
 | B13 | Modales et tutoriel sous les contrôles Leaflet | Moyenne | Faible | ✅ corrigé |
-| §7 | Fichier unique, aucun test, aucun build | Structurelle | Progressif | ◐ découpé, testé |
+| 3.4 | `checkpoint` sans comportement propre | Faible | Faible | ✅ corrigé |
+| 3.6 | Progression trompeuse, rien pour l'organisateur | Faible | Moyen | ✅ corrigé |
+| B14 | QR accentué illisible par le scanner embarqué | Élevée | Faible | ✅ corrigé |
+| §7 | Fichier unique, aucun test, aucun build | Structurelle | Progressif | ✅ découpé, testé |
 
 ---
 
-*Audit réalisé par lecture statique intégrale du source, puis vérifié dans Chromium
-(dépendances servies localement, 19 contrôles de bout en bout). C'est cette
-vérification qui a corrigé B4 et fait apparaître B11 à B13 : la lecture seule ne
-voit pas une grille CSS mal peuplée.*
+*Audit réalisé par lecture statique intégrale du source, puis vérifié dans
+Chromium : 90 tests du noyau et 82 contrôles de bout en bout, exécutables
+contre le dépôt tel quel (`npm test`, `npm run test:browser`). C'est cette
+vérification qui a corrigé B4 et fait apparaître B11 à B14 — la lecture seule
+ne voit ni une grille CSS mal peuplée, ni un QR que le décodeur rend vide.*
