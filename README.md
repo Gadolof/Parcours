@@ -82,6 +82,18 @@ version. Une bannière leur propose alors de recharger.
 `main` est publié sur GitHub Pages par `.github/workflows/pages.yml`, qui ne
 déploie qu'après le passage des tests du noyau.
 
+## Documentation
+
+| Document | Pour qui |
+|---|---|
+| [`docs/notice.html`](docs/notice.html) | Notice d'utilisation — construire un parcours, le vérifier, l'emporter, en relever les résultats |
+| [`docs/presentation.html`](docs/presentation.html) | Présentation d'une page — à quoi sert l'outil et ce qui le distingue |
+| [`docs/AUDIT.md`](docs/AUDIT.md) | Inventaire technique des constats et de la trajectoire |
+
+Les deux pages HTML sont autonomes&nbsp;: elles s'ouvrent directement dans un
+navigateur et s'impriment proprement. La notice cite les libellés exacts de
+l'interface — quand ceux-ci changent, elle change avec eux.
+
 ## État connu
 
 Voir [`docs/AUDIT.md`](docs/AUDIT.md) pour l'inventaire des constats et la

@@ -1,0 +1,348 @@
+<title>Parcours</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,300;1,9..144,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap">
+<style>
+:root{
+  --paper:#f4ecdf; --paper-2:#ede1c9; --paper-3:#e3d4b5;
+  --ink:#2a2520; --ink-soft:#5a4f42; --ink-faint:#615748;
+  --rust:#b0613a; --rust-dark:#8a4620; --rust-text:#8d4926;
+  --forest:#4a6b3d; --forest-dark:#344e2a;
+  --line:#c9b896; --line-soft:#d9cbaa;
+  --grain-a:rgba(138,127,112,.06); --grain-b:rgba(138,127,112,.04);
+  --f-display:'Fraunces',Georgia,serif;
+  --f-body:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,sans-serif;
+  --f-mono:'IBM Plex Mono',Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#16130f; --paper-2:#1f1a14; --paper-3:#2a231a;
+    --ink:#ece3d2; --ink-soft:#c3b6a2; --ink-faint:#9d8f7c;
+    --rust:#d98259; --rust-dark:#e79c74; --rust-text:#e09a72;
+    --forest:#86ac6d; --forest-dark:#a3c489;
+    --line:#3b3226; --line-soft:#2d261c;
+    --grain-a:rgba(236,227,210,.035); --grain-b:rgba(236,227,210,.02);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#16130f; --paper-2:#1f1a14; --paper-3:#2a231a;
+  --ink:#ece3d2; --ink-soft:#c3b6a2; --ink-faint:#9d8f7c;
+  --rust:#d98259; --rust-dark:#e79c74; --rust-text:#e09a72;
+  --forest:#86ac6d; --forest-dark:#a3c489;
+  --line:#3b3226; --line-soft:#2d261c;
+  --grain-a:rgba(236,227,210,.035); --grain-b:rgba(236,227,210,.02);
+}
+
+*,*::before,*::after{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--paper);
+  background-image:radial-gradient(var(--grain-a) 1px,transparent 1px),
+                   radial-gradient(var(--grain-b) 1px,transparent 1px);
+  background-size:3px 3px,7px 7px;
+  background-position:0 0,1px 2px;
+  color:var(--ink);
+  font-family:var(--f-body);
+  font-size:16px;line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--rust);color:var(--paper)}
+:focus-visible{outline:2px solid var(--rust);outline-offset:3px;border-radius:2px}
+
+.page{max-width:1000px;margin:0 auto;padding:0 30px 76px}
+
+/* ---------- Bandeau ---------- */
+.entete{
+  position:relative;overflow:hidden;
+  border-bottom:1px solid var(--line);
+  background:var(--paper-2);
+  padding:0 30px;
+}
+/* Le relevé cartographique occupe la moitié libre du bandeau. Étalé sur
+   toute la largeur, son tracé passait au travers du titre. */
+.courbes{
+  position:absolute;top:0;bottom:0;right:0;
+  width:min(50%,520px);
+  opacity:.55;pointer-events:none;display:none;
+}
+@media (min-width:900px){.courbes{display:block}}
+.entete-in{position:relative;max-width:940px;margin:0 auto;padding:56px 0 46px}
+@media (min-width:900px){
+  .entete-in > *{max-width:min(58%,560px)}
+  .entete-in .pastilles{max-width:none}
+}
+.marque{
+  display:flex;align-items:baseline;gap:10px;
+  font-family:var(--f-display);font-weight:600;font-size:24px;letter-spacing:-.02em;
+}
+.marque::before{content:"❖";color:var(--rust);font-size:15px;position:relative;top:-2px}
+.marque small{
+  font-family:var(--f-mono);font-size:10px;font-weight:400;color:var(--ink-faint);
+  text-transform:uppercase;letter-spacing:.12em;
+}
+h1{
+  font-family:var(--f-display);font-weight:400;
+  font-size:clamp(36px,6.2vw,64px);line-height:1.03;letter-spacing:-.025em;
+  margin:26px 0 0;max-width:17ch;text-wrap:balance;
+}
+h1 em{font-style:italic;font-weight:300;color:var(--rust-dark)}
+.chapeau{
+  margin:20px 0 0;max-width:56ch;font-size:19px;line-height:1.55;color:var(--ink-soft);
+}
+.pastilles{display:flex;flex-wrap:wrap;gap:7px;margin-top:26px}
+.pastille{
+  font-family:var(--f-mono);font-size:10.5px;font-weight:500;
+  letter-spacing:.1em;text-transform:uppercase;
+  padding:5px 10px;border:1px solid var(--line);border-radius:3px;
+  color:var(--ink-soft);background:var(--paper);
+}
+.pastille.fort{border-color:var(--rust);color:var(--rust-dark)}
+
+/* ---------- Sections ---------- */
+section{padding-top:54px}
+h2{
+  font-family:var(--f-display);font-weight:600;
+  font-size:clamp(21px,2.8vw,26px);letter-spacing:-.015em;
+  margin:0 0 6px;text-wrap:balance;
+}
+.eyebrow{
+  font-family:var(--f-mono);font-size:10px;font-weight:500;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--rust-text);
+  display:block;margin-bottom:9px;
+}
+p{margin:12px 0 0;max-width:64ch}
+.lede{font-size:17px;color:var(--ink-soft);max-width:62ch}
+
+/* ---------- Les trois temps (une vraie séquence) ---------- */
+.temps{display:grid;gap:0;margin-top:30px;border-top:1px solid var(--line)}
+@media (min-width:820px){.temps{grid-template-columns:repeat(3,1fr);gap:0 32px}}
+.temps > div{
+  padding:22px 0;
+  border-bottom:1px solid var(--line-soft);
+}
+@media (min-width:820px){.temps > div{border-bottom:none}}
+.temps .rang{
+  font-family:var(--f-mono);font-size:10px;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--rust-text);
+  display:flex;align-items:center;gap:8px;margin-bottom:10px;
+}
+.temps .rang::after{content:"";height:1px;flex:1;background:var(--line-soft)}
+.temps h3{
+  font-family:var(--f-display);font-weight:600;font-size:20px;
+  margin:0 0 8px;letter-spacing:-.01em;
+}
+.temps p{margin:0;font-size:15px;color:var(--ink-soft);max-width:none}
+
+/* ---------- Le point dur ---------- */
+.pivot{
+  margin-top:34px;
+  border-left:2px solid var(--rust);
+  padding:4px 0 4px 20px;
+  max-width:64ch;
+}
+.pivot .lbl{
+  display:block;font-family:var(--f-mono);font-size:9.5px;font-weight:600;
+  letter-spacing:.15em;text-transform:uppercase;color:var(--rust-dark);margin-bottom:6px;
+}
+.pivot p{margin:0}
+.pivot p + p{margin-top:10px}
+
+/* ---------- Traits distinctifs ---------- */
+.traits{display:grid;gap:0;margin-top:26px;border-top:1px solid var(--line)}
+@media (min-width:700px){.traits{grid-template-columns:1fr 1fr;column-gap:36px}}
+.trait{padding:16px 0;border-bottom:1px solid var(--line-soft)}
+.trait h3{
+  font-family:var(--f-display);font-weight:600;font-size:17px;margin:0 0 4px;
+}
+.trait p{margin:0;font-size:14.5px;color:var(--ink-soft);max-width:none}
+
+/* ---------- Chiffres ---------- */
+.chiffres{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+  gap:1px;margin-top:26px;
+  background:var(--line-soft);border:1px solid var(--line-soft);
+}
+.chiffre{background:var(--paper);padding:16px 18px}
+.chiffre .v{
+  font-family:var(--f-display);font-weight:500;font-size:27px;line-height:1.1;
+  letter-spacing:-.02em;font-variant-numeric:tabular-nums;
+}
+.chiffre .l{
+  font-family:var(--f-mono);font-size:9.5px;font-weight:500;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint);margin-top:5px;
+}
+
+/* ---------- Pour qui ---------- */
+.pourqui{margin-top:24px;max-width:64ch}
+.pourqui li{margin-bottom:8px}
+.pourqui strong{font-weight:600}
+
+/* ---------- Pied ---------- */
+.demarrer{
+  margin-top:54px;padding:26px 28px;
+  background:var(--paper-2);border:1px solid var(--line);border-radius:4px;
+}
+.demarrer h2{margin-bottom:8px}
+.demarrer ol{margin:14px 0 0;padding-left:20px;max-width:60ch}
+.demarrer li{margin-bottom:7px;color:var(--ink-soft)}
+.demarrer strong{color:var(--ink)}
+footer{
+  margin-top:40px;padding-top:20px;border-top:1px solid var(--line);
+  font-size:13.5px;color:var(--ink-faint);max-width:64ch;
+}
+.ui{
+  font-family:var(--f-mono);font-size:.84em;
+  background:var(--paper-3);padding:1px 6px;border-radius:2px;white-space:nowrap;
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media print{
+  @page{margin:14mm}
+  body{background:#fff;background-image:none;color:#000;font-size:10.5pt}
+  .entete,.demarrer,.chiffre{background:#fff}
+  .courbes{opacity:.25}
+  section{padding-top:22pt;break-inside:avoid}
+  .temps,.traits{break-inside:avoid}
+}
+</style>
+
+<header class="entete">
+    <svg class="courbes" viewBox="0 0 520 300" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <g fill="none" stroke="var(--line)" stroke-width="1.1">
+        <path d="M-20 262 C 80 232, 150 278, 240 246 S 400 190, 480 214 S 530 236, 545 224"/>
+        <path d="M-20 222 C 86 188, 156 240, 246 204 S 404 146, 484 172 S 532 196, 545 182"/>
+        <path d="M-20 182 C 92 144, 162 202, 252 162 S 408 102, 488 130 S 534 156, 545 140"/>
+        <path d="M-20 142 C 98 100, 168 164, 258 120 S 412 58, 492 88 S 536 116, 545 98"/>
+        <path d="M-20 102 C 104 56, 174 126, 264 78 S 416 14, 496 46 S 538 76, 545 56"/>
+      </g>
+      <path d="M74 250 L 168 190 L 262 208 L 344 146 L 438 164"
+            fill="none" stroke="var(--forest)" stroke-width="2.6" stroke-linecap="round"
+            stroke-linejoin="round" stroke-dasharray="9 7" opacity=".75"/>
+      <g fill="var(--paper-2)" stroke="var(--forest)" stroke-width="2.6">
+        <circle cx="74" cy="250" r="6.5"/><circle cx="168" cy="190" r="5.5"/>
+        <circle cx="262" cy="208" r="5.5"/><circle cx="344" cy="146" r="5.5"/>
+      </g>
+      <circle cx="438" cy="164" r="8.5" fill="var(--rust)"/>
+    </svg>
+    <div class="entete-in">
+      <div class="marque">Parcours <small>v0.3</small></div>
+      <h1>Le carnet de terrain <em>qui fonctionne sans réseau</em></h1>
+      <p class="chapeau">Concevoir une course d'orientation ou un escape game en extérieur, imprimer ses balises, et le faire jouer là où il n'y a ni antenne ni Wi-Fi.</p>
+      <div class="pastilles">
+        <span class="pastille fort">Hors ligne réel</span>
+        <span class="pastille">Aucun compte</span>
+        <span class="pastille">Aucun serveur</span>
+        <span class="pastille">Un fichier .zip</span>
+        <span class="pastille">Web, sur tout téléphone</span>
+      </div>
+    </div>
+</header>
+
+<div class="page">
+  <section>
+    <span class="eyebrow">Le problème</span>
+    <h2>Les outils de jeu de piste supposent tous qu'il y a du réseau</h2>
+    <p class="lede">Or une course d'orientation se court en forêt, dans un vallon, au fond d'un parc — exactement là où la barre de signal tombe. Une application qui a besoin d'appeler un serveur pour afficher l'étape suivante laisse une équipe de gamins plantée devant un écran blanc, et l'encadrant sans solution.</p>
+    <p>Parcours part de l'autre bout&nbsp;: l'application entière, les fonds de carte de la zone, les images et les sons sont téléchargés <em>avant</em> de partir. Sur le terrain, plus rien n'a besoin d'arriver.</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">Le déroulé</span>
+    <h2>Trois temps, du bureau au terrain</h2>
+    <div class="temps">
+      <div>
+        <div class="rang">Avant · au chaud</div>
+        <h3>Concevoir</h3>
+        <p>Un éditeur en deux moitiés&nbsp;: la carte dit <em>où</em>, le graphe dit <em>dans quel ordre</em>. On pose des étapes, des énigmes, des portes à ouvrir, on les relie, on ramifie selon les bonnes et les mauvaises réponses.</p>
+      </div>
+      <div>
+        <div class="rang">La veille</div>
+        <h3>Emporter</h3>
+        <p>Une planche A4 de QR à découper et poser, les tuiles de la zone téléchargées pour de bon, et une vérification qui relit le parcours à votre place — avant l'impression, pas sur le terrain.</p>
+      </div>
+      <div>
+        <div class="rang">Le jour J</div>
+        <h3>Jouer</h3>
+        <p>Chaque équipe suit le parcours sur son téléphone&nbsp;: scan, code, proximité GPS. Une partie interrompue se reprend où elle s'était arrêtée. À l'arrivée, son temps et son détail d'étapes.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Ce qui change vraiment</span>
+    <h2>Le hors ligne n'est pas une option de repli</h2>
+    <div class="pivot">
+      <span class="lbl">Vérifié réseau coupé</span>
+      <p>Aucune dépendance n'est chargée depuis un CDN&nbsp;: bibliothèques et polices sont embarquées, et un service worker met l'application en cache dès la première visite. Les fonds de carte ont leur propre réserve, alimentée depuis l'éditeur.</p>
+      <p>Une suite de tests coupe le réseau, recharge la page et vérifie que l'application démarre, que la mise en page s'applique et que l'éditeur reste utilisable. C'est la promesse la plus facile à afficher et la plus rarement tenue&nbsp;; ici elle est contrôlée à chaque modification.</p>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Traits distinctifs</span>
+    <h2>Ce qu'on ne trouve pas ailleurs</h2>
+    <div class="traits">
+      <div class="trait">
+        <h3>Les QR sont produits ici</h3>
+        <p>Planche A4 prête à découper&nbsp;: numéro d'ordre, code en clair pour la saisie de secours, coordonnées du point à retrouver. Sans passer par un générateur en ligne.</p>
+      </div>
+      <div class="trait">
+        <h3>Le parcours est relu avant l'impression</h3>
+        <p>Impasse, nœud inatteignable, énigme sans réponse, porte que rien n'ouvre&nbsp;: chaque anomalie est listée et cliquable, et mène au nœud fautif.</p>
+      </div>
+      <div class="trait">
+        <h3>Une mauvaise réponse a des conséquences</h3>
+        <p>Réessayer sur place, ou partir sur une branche de rattrapage. Un détour, un indice, une épreuve supplémentaire&nbsp;: l'auteur choisit, nœud par nœud.</p>
+      </div>
+      <div class="trait">
+        <h3>Les acquis se transportent</h3>
+        <p>Une lampe trouvée, un mot de passe entendu. Un checkpoint reste fermé tant qu'il manque quelque chose — et dit à l'équipe ce qui lui fait défaut.</p>
+      </div>
+      <div class="trait">
+        <h3>Le tracé se lit sur la carte</h3>
+        <p>Marqueurs numérotés dans l'ordre du parcours, trait plein pour le chemin, pointillé pour les variantes, longueur totale affichée.</p>
+      </div>
+      <div class="trait">
+        <h3>L'organisateur compare ses équipes</h3>
+        <p>On dépose les fichiers rapportés&nbsp;: classement au nombre d'erreurs puis au temps, et le relevé des étapes où tout le monde a buté.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Pour qui</span>
+    <h2>Ceux qui organisent, pas ceux qui codent</h2>
+    <ul class="pourqui">
+      <li><strong>Mouvements de jeunesse et centres de loisirs</strong> — un grand jeu monté en une soirée, rejouable l'année suivante.</li>
+      <li><strong>Enseignants en sortie</strong> — un parcours patrimoine ou nature, avec des questions à chaque arrêt.</li>
+      <li><strong>Offices de tourisme et musées</strong> — une visite autonome que le visiteur suit à son rythme, y compris en zone blanche.</li>
+      <li><strong>Clubs d'orientation</strong> — un tracé, ses distances, et le classement des équipes en fin de journée.</li>
+    </ul>
+  </section>
+
+  <section>
+    <span class="eyebrow">L'état du projet</span>
+    <h2>Une v0.3 auditée</h2>
+    <p class="lede">Le code a été passé en revue de bout en bout, puis éprouvé dans un navigateur réel — réseau coupé, sur un écran de téléphone, et sur un parcours de cent vingt étapes.</p>
+    <div class="chiffres">
+      <div class="chiffre"><div class="v">41</div><div class="l">constats traités</div></div>
+      <div class="chiffre"><div class="v">91</div><div class="l">tests du noyau</div></div>
+      <div class="chiffre"><div class="v">143</div><div class="l">contrôles navigateur</div></div>
+      <div class="chiffre"><div class="v">0</div><div class="l">requête externe</div></div>
+    </div>
+    <p>Les fonctions du terrain sont en place&nbsp;: planche de QR, vérification, tracé et distances, annuler/rétablir, flags et checkpoints, comparaison multi-équipes. Ce qui reste relève du choix produit, pas de la correction.</p>
+  </section>
+
+  <div class="demarrer">
+    <span class="eyebrow">Essayer</span>
+    <h2>Quatre minutes suffisent</h2>
+    <ol>
+      <li>Ouvrir l'application et laisser le <strong>tour d'initiation</strong> se dérouler — il fait deux minutes.</li>
+      <li>Poser une <strong>intro</strong>, deux <strong>étapes</strong> et un <strong>outro</strong>, les relier, désigner le départ.</li>
+      <li>Lancer <span class="ui">▶ Tester le parcours</span> pour le traverser sans bouger de sa chaise.</li>
+      <li>Passer en <strong>mode avion</strong> et recharger&nbsp;: tout doit encore répondre.</li>
+    </ol>
+    <footer>
+      Application web autonome, en français. Rien à installer&nbsp;: elle s'ajoute à l'écran d'accueil comme une application normale. Les données restent sur l'appareil&nbsp;; le fichier <span class="ui">.zip</span> sert à les partager. Une notice détaillée accompagne cette page.
+    </footer>
+  </div>
+</div>

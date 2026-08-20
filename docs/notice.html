@@ -1,0 +1,509 @@
+<title>Notice Parcours</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap">
+<style>
+:root{
+  --paper:#f4ecdf; --paper-2:#ede1c9; --paper-3:#e3d4b5;
+  --ink:#2a2520; --ink-soft:#5a4f42; --ink-faint:#615748;
+  --rust:#b0613a; --rust-dark:#8a4620; --rust-text:#8d4926;
+  --forest:#4a6b3d; --forest-dark:#344e2a;
+  --line:#c9b896; --line-soft:#d9cbaa;
+  --grain-a:rgba(138,127,112,.06); --grain-b:rgba(138,127,112,.04);
+  --f-display:'Fraunces',Georgia,serif;
+  --f-body:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,sans-serif;
+  --f-mono:'IBM Plex Mono',Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#16130f; --paper-2:#1f1a14; --paper-3:#2a231a;
+    --ink:#ece3d2; --ink-soft:#c3b6a2; --ink-faint:#9d8f7c;
+    --rust:#d98259; --rust-dark:#e79c74; --rust-text:#e09a72;
+    --forest:#86ac6d; --forest-dark:#a3c489;
+    --line:#3b3226; --line-soft:#2d261c;
+    --grain-a:rgba(236,227,210,.035); --grain-b:rgba(236,227,210,.02);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#16130f; --paper-2:#1f1a14; --paper-3:#2a231a;
+  --ink:#ece3d2; --ink-soft:#c3b6a2; --ink-faint:#9d8f7c;
+  --rust:#d98259; --rust-dark:#e79c74; --rust-text:#e09a72;
+  --forest:#86ac6d; --forest-dark:#a3c489;
+  --line:#3b3226; --line-soft:#2d261c;
+  --grain-a:rgba(236,227,210,.035); --grain-b:rgba(236,227,210,.02);
+}
+
+*,*::before,*::after{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--paper);
+  background-image:radial-gradient(var(--grain-a) 1px,transparent 1px),
+                   radial-gradient(var(--grain-b) 1px,transparent 1px);
+  background-size:3px 3px,7px 7px;
+  background-position:0 0,1px 2px;
+  color:var(--ink);
+  font-family:var(--f-body);
+  font-size:16px;
+  line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--rust);color:var(--paper)}
+:focus-visible{outline:2px solid var(--rust);outline-offset:3px;border-radius:2px}
+
+/* ---------- En-tête ---------- */
+.masthead{
+  border-bottom:1px solid var(--line);
+  background:var(--paper-2);
+}
+.masthead-in{max-width:1180px;margin:0 auto;padding:46px 32px 34px}
+.kicker{
+  font-family:var(--f-mono);font-size:10.5px;font-weight:500;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--rust-text);
+  display:flex;align-items:center;gap:10px;
+}
+.kicker::after{content:"";height:1px;flex:1;background:var(--line)}
+h1{
+  font-family:var(--f-display);font-weight:600;
+  font-size:clamp(34px,5.6vw,54px);line-height:1.04;
+  letter-spacing:-.02em;margin:16px 0 0;max-width:16ch;text-wrap:balance;
+}
+h1 em{font-style:italic;font-weight:400;color:var(--rust-dark)}
+.chapeau{margin:16px 0 0;max-width:58ch;font-size:18px;color:var(--ink-soft)}
+
+/* ---------- Corps ---------- */
+.shell{max-width:1180px;margin:0 auto;padding:0 32px 90px;display:grid;gap:44px}
+@media (min-width:1020px){.shell{grid-template-columns:216px minmax(0,1fr);gap:56px}}
+
+nav.sommaire{display:none}
+@media (min-width:1020px){
+  nav.sommaire{
+    display:block;position:sticky;top:22px;align-self:start;
+    padding-top:42px;max-height:calc(100vh - 44px);overflow-y:auto;
+  }
+  nav.sommaire ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px}
+  nav.sommaire a{
+    display:flex;gap:9px;font-family:var(--f-mono);font-size:11.5px;
+    color:var(--ink-faint);text-decoration:none;padding:5px 0;
+  }
+  nav.sommaire a:hover{color:var(--rust-dark)}
+  nav.sommaire .n{color:var(--rust-text);flex:0 0 1.4em;font-weight:500}
+}
+
+main{min-width:0;padding-top:42px}
+section{margin-bottom:58px;scroll-margin-top:22px}
+h2{
+  font-family:var(--f-display);font-weight:600;
+  font-size:clamp(23px,3vw,29px);letter-spacing:-.015em;line-height:1.16;
+  margin:0;text-wrap:balance;
+}
+.h2-num{
+  display:block;font-family:var(--f-mono);font-size:10.5px;font-weight:500;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--rust-text);margin-bottom:10px;
+}
+h3{
+  font-family:var(--f-display);font-weight:600;font-size:18.5px;
+  margin:30px 0 8px;letter-spacing:-.01em;text-wrap:balance;
+}
+p{margin:14px 0 0;max-width:66ch}
+main ul,main ol.liste{max-width:66ch;margin:14px 0 0;padding-left:20px}
+main li{margin-bottom:7px}
+strong{font-weight:600}
+a{color:var(--rust-dark)}
+
+/* Libellés de l'interface, cités tels quels */
+.ui{
+  font-family:var(--f-mono);font-size:.83em;
+  background:var(--paper-3);color:var(--ink);
+  padding:1px 6px;border-radius:2px;white-space:nowrap;
+}
+kbd{
+  font-family:var(--f-mono);font-size:.79em;
+  border:1px solid var(--line);border-bottom-width:2px;
+  padding:1px 6px;border-radius:3px;background:var(--paper-2);white-space:nowrap;
+}
+
+/* ---------- Encadrés ---------- */
+.note{
+  margin:20px 0 0;padding:12px 0 12px 16px;
+  border-left:2px solid var(--forest);
+  max-width:64ch;
+}
+.note.attention{border-left-color:var(--rust)}
+.note .lbl{
+  display:block;font-family:var(--f-mono);font-size:9.5px;font-weight:600;
+  letter-spacing:.15em;text-transform:uppercase;color:var(--forest-dark);margin-bottom:5px;
+}
+.note.attention .lbl{color:var(--rust-dark)}
+.note p{margin:0;font-size:15px;color:var(--ink-soft)}
+.note p + p{margin-top:8px}
+
+/* ---------- Étapes numérotées (une vraie séquence) ---------- */
+ol.marche{list-style:none;margin:18px 0 0;padding:0;counter-reset:m;max-width:66ch}
+ol.marche > li{
+  counter-increment:m;position:relative;
+  padding:0 0 16px 40px;margin:0;
+}
+ol.marche > li::before{
+  content:counter(m);position:absolute;left:0;top:1px;
+  width:24px;height:24px;border-radius:50%;
+  border:1px solid var(--line);background:var(--paper-2);
+  font-family:var(--f-mono);font-size:11px;font-weight:600;color:var(--rust-text);
+  display:flex;align-items:center;justify-content:center;
+}
+ol.marche > li::after{
+  content:"";position:absolute;left:12px;top:28px;bottom:2px;
+  border-left:1px dashed var(--line);
+}
+ol.marche > li:last-child::after{display:none}
+ol.marche p{margin:0}
+ol.marche p + p{margin-top:6px}
+ol.marche strong{display:block;font-family:var(--f-display);font-size:16.5px;font-weight:600;margin-bottom:3px}
+
+/* ---------- Tableaux ---------- */
+.tablewrap{overflow-x:auto;margin:20px 0 0}
+table{border-collapse:collapse;width:100%;min-width:520px;font-size:14.5px}
+th{
+  font-family:var(--f-mono);font-size:9.5px;font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);
+  text-align:left;padding:0 16px 9px 0;border-bottom:1px solid var(--line);white-space:nowrap;
+}
+td{padding:11px 16px 11px 0;border-bottom:1px solid var(--line-soft);vertical-align:top;color:var(--ink-soft)}
+td:first-child{color:var(--ink);white-space:nowrap}
+td.def{color:var(--ink-soft)}
+
+/* ---------- Types de nœuds ---------- */
+.types{display:grid;gap:1px;margin:20px 0 0;max-width:66ch}
+.type-row{
+  display:grid;grid-template-columns:36px 108px minmax(0,1fr);gap:14px;align-items:baseline;
+  padding:12px 0;border-bottom:1px solid var(--line-soft);
+}
+.type-glyph{
+  width:26px;height:26px;border-radius:3px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--f-mono);font-size:12px;font-weight:600;
+  color:var(--paper);background:var(--forest);
+}
+.type-glyph.q{background:var(--rust)}
+.type-glyph.c{background:var(--forest-dark)}
+.type-glyph.io{background:var(--ink)}
+.type-name{font-family:var(--f-display);font-weight:600;font-size:16.5px}
+.type-desc{font-size:14.5px;color:var(--ink-soft)}
+
+footer{border-top:1px solid var(--line);padding-top:24px;color:var(--ink-faint);font-size:14px;max-width:66ch}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+html{scroll-behavior:smooth}
+
+@media print{
+  @page{margin:16mm}
+  body{background:#fff;background-image:none;color:#000;font-size:11pt}
+  nav.sommaire,.masthead{background:#fff}
+  .shell{display:block;padding:0}
+  main{padding-top:0}
+  nav.sommaire{display:none}
+  section{break-inside:auto;page-break-inside:auto;margin-bottom:26pt}
+  h2,h3{break-after:avoid;page-break-after:avoid}
+  .note,.type-row,ol.marche > li{break-inside:avoid;page-break-inside:avoid}
+  a{text-decoration:none;color:#000}
+}
+</style>
+
+<header class="masthead">
+  <div class="masthead-in">
+    <div class="kicker">Notice d'utilisation · v0.3</div>
+    <h1>Tracer un parcours, <em>puis le jouer dehors</em></h1>
+    <p class="chapeau">Tout ce qu'il faut savoir pour construire une course d'orientation ou un escape game en extérieur, l'emporter sur le terrain et en relever les résultats — sans réseau, sans compte, sans serveur.</p>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="sommaire" aria-label="Sommaire">
+    <ol>
+      <li><a href="#principe"><span class="n">01</span> Le principe</a></li>
+      <li><a href="#installer"><span class="n">02</span> Installer</a></li>
+      <li><a href="#construire"><span class="n">03</span> Construire</a></li>
+      <li><a href="#valider"><span class="n">04</span> Faire valider</a></li>
+      <li><a href="#enigmes"><span class="n">05</span> Énigmes</a></li>
+      <li><a href="#ramifier"><span class="n">06</span> Ramifier</a></li>
+      <li><a href="#flags"><span class="n">07</span> Flags</a></li>
+      <li><a href="#medias"><span class="n">08</span> Médias</a></li>
+      <li><a href="#verifier"><span class="n">09</span> Vérifier</a></li>
+      <li><a href="#terrain"><span class="n">10</span> Préparer</a></li>
+      <li><a href="#jouer"><span class="n">11</span> Jouer</a></li>
+      <li><a href="#resultats"><span class="n">12</span> Résultats</a></li>
+      <li><a href="#gestes"><span class="n">13</span> Gestes</a></li>
+      <li><a href="#limites"><span class="n">14</span> Limites</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+  <section id="principe">
+    <span class="h2-num">01</span>
+    <h2>Le principe</h2>
+    <p>L'éditeur est coupé en deux, et cette coupure est toute l'idée&nbsp;: <strong>la carte dit <em>où</em>, le graphe dit <em>dans quel ordre</em></strong>. Les deux moitiés montrent le même parcours et restent synchronisées.</p>
+    <p>Un parcours est fait de <strong>nœuds</strong> — les moments du jeu — reliés par des <strong>liens</strong> — l'ordre dans lequel on les traverse. Un nœud posé sur la carte a une position&nbsp;; un nœud qui n'en a pas existe quand même dans le graphe.</p>
+    <div class="note">
+      <span class="lbl">Où va votre travail</span>
+      <p>Tout est enregistré au fil de la frappe dans votre navigateur, sur cet appareil. Rien ne part sur un serveur. Pour transmettre un parcours à quelqu'un — ou simplement le mettre à l'abri — exportez un fichier <span class="ui">.zip</span>.</p>
+    </div>
+  </section>
+
+  <section id="installer">
+    <span class="h2-num">02</span>
+    <h2>Installer sur le téléphone</h2>
+    <p>L'application se charge une fois depuis son adresse web, puis fonctionne sans réseau. Pour l'avoir sous la main comme une application normale&nbsp;:</p>
+    <ol class="marche">
+      <li>
+        <strong>Ouvrez l'adresse dans le navigateur</strong>
+        <p>Laissez la page se charger entièrement une première fois, avec du réseau. C'est à ce moment qu'elle se met en cache.</p>
+      </li>
+      <li>
+        <strong>Ajoutez-la à l'écran d'accueil</strong>
+        <p>Sur iPhone, menu Partager → <span class="ui">Sur l'écran d'accueil</span>. Sur Android, menu du navigateur → <span class="ui">Installer l'application</span>.</p>
+      </li>
+      <li>
+        <strong>Vérifiez qu'elle démarre hors ligne</strong>
+        <p>Coupez les données, ouvrez l'icône. L'application doit s'ouvrir normalement. Si un écran «&nbsp;Fichiers manquants&nbsp;» apparaît, c'est que le premier chargement n'était pas complet&nbsp;: rechargez avec du réseau.</p>
+      </li>
+    </ol>
+    <div class="note attention">
+      <span class="lbl">Avant une sortie</span>
+      <p>Ouvrez l'onglet <span class="ui">Scénario</span> et regardez la ligne d'état du stockage, sous <span class="ui">Carte hors ligne</span>. Si elle indique que le stockage n'est pas garanti, le navigateur peut effacer vos scénarios quand l'appareil manque de place. Exportez un <span class="ui">.zip</span> par sécurité.</p>
+    </div>
+  </section>
+
+  <section id="construire">
+    <span class="h2-num">03</span>
+    <h2>Construire un parcours</h2>
+
+    <h3>Les cinq types de nœuds</h3>
+    <div class="types">
+      <div class="type-row">
+        <span class="type-glyph io">▶</span><span class="type-name">Intro</span>
+        <span class="type-desc">Le briefing. Pas de position&nbsp;: on la lit avant de partir.</span>
+      </div>
+      <div class="type-row">
+        <span class="type-glyph">É</span><span class="type-name">Étape</span>
+        <span class="type-desc">Un point à atteindre, validé par un QR, un code ou le GPS.</span>
+      </div>
+      <div class="type-row">
+        <span class="type-glyph q">?</span><span class="type-name">Énigme</span>
+        <span class="type-desc">Une question, une réponse attendue. C'est la réponse qui fait avancer.</span>
+      </div>
+      <div class="type-row">
+        <span class="type-glyph c">✓</span><span class="type-name">Checkpoint</span>
+        <span class="type-desc">Une porte&nbsp;: elle ne s'ouvre que si l'équipe détient certains acquis.</span>
+      </div>
+      <div class="type-row">
+        <span class="type-glyph io">■</span><span class="type-name">Outro</span>
+        <span class="type-desc">La conclusion. Elle termine la partie et ouvre l'écran de résultats.</span>
+      </div>
+    </div>
+
+    <h3>Poser, relier, démarrer</h3>
+    <ol class="marche">
+      <li>
+        <strong>Posez un nœud</strong>
+        <p>Sur ordinateur, attrapez un type dans la palette de gauche et glissez-le sur la carte — pour lui donner une position — ou sur le graphe, pour l'y créer sans position.</p>
+        <p>Sur téléphone, touchez le bouton <span class="ui">+</span>, choisissez le type, puis touchez l'endroit voulu.</p>
+      </li>
+      <li>
+        <strong>Reliez-les</strong>
+        <p>Dans le graphe, chaque nœud porte un <strong>cercle noir à droite</strong> (sa sortie) et un <strong>cercle blanc à gauche</strong> (son entrée). Maintenez le clic sur le cercle noir du premier, tirez le trait jusqu'au cercle blanc du second, relâchez.</p>
+        <p>Pour défaire un lien&nbsp;: cliquez dessus, puis <kbd>Suppr</kbd>. Ou, dans l'inspecteur du nœud source, le bouton <span class="ui">✕</span> de la ligne correspondante.</p>
+      </li>
+      <li>
+        <strong>Désignez le départ</strong>
+        <p>Sélectionnez le nœud, puis <span class="ui">Définir comme départ</span> en bas de l'inspecteur. C'est de là que partira chaque équipe. Sans départ, le jeu ne peut pas se lancer.</p>
+      </li>
+    </ol>
+
+    <div class="note">
+      <span class="lbl">Repères sur la carte</span>
+      <p>Les marqueurs sont numérotés <strong>dans l'ordre du parcours</strong>, pas dans l'ordre où vous les avez créés. Le tracé relie les nœuds positionnés&nbsp;: trait plein pour le chemin normal, pointillé pour les branches conditionnelles. La longueur du chemin principal s'affiche en haut de la carte, et le bouton <span class="ui">⤢</span> recadre sur l'ensemble.</p>
+    </div>
+  </section>
+
+  <section id="valider">
+    <span class="h2-num">04</span>
+    <h2>Faire valider une étape</h2>
+    <p>Dans l'inspecteur d'une étape ou d'un checkpoint, la section <span class="ui">Validation</span> décide de ce que l'équipe doit faire pour passer.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Méthode</th><th>Ce que fait l'équipe</th><th>À renseigner</th></tr></thead>
+        <tbody>
+          <tr><td>QR code</td><td class="def">Scanne un QR posé sur place, ou saisit son contenu si la caméra refuse.</td><td class="def">Le contenu attendu</td></tr>
+          <tr><td>Code saisi</td><td class="def">Tape un code lu sur un panneau, une plaque, une borne.</td><td class="def">Le code attendu</td></tr>
+          <tr><td>Proximité GPS</td><td class="def">S'approche du point&nbsp;; le bouton s'active quand elle est assez près.</td><td class="def">Un rayon, de 5 à 200&nbsp;m</td></tr>
+          <tr><td>Aucune</td><td class="def">Confirme simplement être arrivée.</td><td class="def">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Le bouton <span class="ui">⚄ Code aléatoire</span> tire un jeton de six caractères dans un alphabet sans ambiguïté — ni <span class="ui">O</span>/<span class="ui">0</span>, ni <span class="ui">I</span>/<span class="ui">1</span>/<span class="ui">l</span>. Préférez-le à un mot choisi&nbsp;: <span class="ui">eglise</span> se devine, <span class="ui">K7RQM2</span> non.</p>
+    <div class="note attention">
+      <span class="lbl">Les QR n'acceptent que des caractères simples</span>
+      <p>Lettres non accentuées, chiffres et ponctuation courante. Un contenu accentué produit un QR valide que le scanner intégré <strong>relit vide</strong>&nbsp;: sur le terrain, la validation ne correspondrait jamais. La vérification refuse ces valeurs avant que vous n'imprimiez quoi que ce soit.</p>
+    </div>
+    <p>Quand une réponse peut être fausse — QR ou code —, le réglage <span class="ui">Si la réponse est fausse</span> décide de la suite&nbsp;: <span class="ui">Rester sur place et réessayer</span>, ce qui est le comportement par défaut, ou <span class="ui">Avancer quand même</span>, qui emprunte alors le lien «&nbsp;si incorrect&nbsp;» s'il existe.</p>
+  </section>
+
+  <section id="enigmes">
+    <span class="h2-num">05</span>
+    <h2>Écrire une énigme</h2>
+    <p>Une énigme se juge sur sa réponse, et sur rien d'autre&nbsp;: elle n'a pas de section Validation. Renseignez sa <span class="ui">Question</span> et sa <span class="ui">Réponse attendue</span>.</p>
+    <p>La comparaison ignore la casse, les accents et les espaces en trop. <span class="ui">Sept</span>, <span class="ui">sept</span> et <span class="ui">&nbsp;SEPT&nbsp;</span> valent la même chose&nbsp;; <span class="ui">7</span> non. Si les deux formes sont acceptables, mieux vaut le préciser dans la question.</p>
+    <div class="note">
+      <span class="lbl">Conseil de rédaction</span>
+      <p>Écrivez la question de façon à ce qu'une seule forme de réponse soit naturelle — «&nbsp;Combien de branches&nbsp;? <em>(en toutes lettres)</em>&nbsp;» — plutôt que d'espérer deviner ce que l'équipe tapera.</p>
+    </div>
+  </section>
+
+  <section id="ramifier">
+    <span class="h2-num">06</span>
+    <h2>Ramifier le parcours</h2>
+    <p>Par défaut, un lien s'emprunte toujours. Dans l'inspecteur du nœud source, le bouton <span class="ui">Cond.</span> d'une ligne de lien permet de lui poser une condition&nbsp;:</p>
+    <ul>
+      <li><span class="ui">Toujours (lien inconditionnel)</span> — le chemin normal.</li>
+      <li><span class="ui">Si la réponse est correcte</span> — la bonne branche.</li>
+      <li><span class="ui">Si la réponse est incorrecte</span> — le rattrapage, un détour, un indice.</li>
+      <li><span class="ui">Si un flag est actif</span> — voir la section suivante.</li>
+    </ul>
+    <p>À la sortie d'un nœud, les liens <strong>conditionnels sont examinés d'abord</strong>, dans leur ordre de création&nbsp;; le premier dont la condition est vraie l'emporte. À défaut, c'est le lien sans condition qui sert de repli.</p>
+    <div class="note">
+      <span class="lbl">Le parcours ne s'arrête jamais par accident</span>
+      <p>Si aucune condition ne correspond et qu'aucun lien de repli n'existe, le jeu emprunte quand même le premier lien disponible. Abandonner une équipe sur l'écran de fin, au milieu du parcours, serait pire. La vérification vous signale ces cas pour que vous les traitiez vous-même.</p>
+    </div>
+  </section>
+
+  <section id="flags">
+    <span class="h2-num">07</span>
+    <h2>Flags et checkpoints</h2>
+    <p>Un <strong>flag</strong> est un acquis&nbsp;: quelque chose que l'équipe emporte avec elle une fois obtenu. Une lampe trouvée, un mot de passe entendu, une épreuve réussie.</p>
+    <ul>
+      <li><strong>Poser un flag</strong> — section <span class="ui">Flags posés</span> d'un nœud. L'équipe l'acquiert en validant ce nœud.</li>
+      <li><strong>Exiger des flags</strong> — section <span class="ui">Flags exigés</span> d'un checkpoint. Tant qu'il en manque un, le checkpoint reste fermé et affiche à l'équipe ce qui lui fait défaut.</li>
+      <li><strong>Tester un flag</strong> — condition <span class="ui">Si un flag est actif</span> sur un lien, pour ouvrir un passage réservé.</li>
+    </ul>
+    <p>Les noms de flags déjà utilisés dans le parcours vous sont proposés à la saisie&nbsp;: c'est là que se logent la plupart des fautes de frappe. Un flag exigé que personne ne pose est signalé comme une erreur.</p>
+  </section>
+
+  <section id="medias">
+    <span class="h2-num">08</span>
+    <h2>Images et sons</h2>
+    <p>L'onglet <span class="ui">Médias</span> reçoit des images et des fichiers audio, par glisser-déposer ou par le sélecteur. On les rattache ensuite à un nœud depuis sa section <span class="ui">Médias</span>&nbsp;: une photo du détail à chercher, un enregistrement à écouter sur place.</p>
+    <p>Les fichiers sont stockés à côté du scénario et partent avec lui dans le <span class="ui">.zip</span>. Un média qui n'est utilisé nulle part est signalé par la vérification&nbsp;: il alourdit l'export pour rien.</p>
+  </section>
+
+  <section id="verifier">
+    <span class="h2-num">09</span>
+    <h2>Vérifier avant d'imprimer</h2>
+    <p>La section <span class="ui">Vérification</span> de l'onglet Scénario relit le parcours et liste ce qui cloche. Chaque ligne est cliquable et vous emmène au nœud fautif.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Elle détecte</th><th>Pourquoi ça compte</th></tr></thead>
+        <tbody>
+          <tr><td>Départ absent ou disparu</td><td class="def">Le jeu ne peut pas démarrer.</td></tr>
+          <tr><td>Nœud sans lien sortant</td><td class="def">La partie s'arrêterait là.</td></tr>
+          <tr><td>Nœud inatteignable</td><td class="def">Vous l'avez écrit, personne ne le verra.</td></tr>
+          <tr><td>QR ou code sans valeur</td><td class="def">Rien à comparer&nbsp;: l'équipe resterait bloquée.</td></tr>
+          <tr><td>QR aux caractères illisibles</td><td class="def">Le scan ne correspondrait jamais.</td></tr>
+          <tr><td>Énigme sans réponse</td><td class="def">Aucune saisie ne pourrait être juste.</td></tr>
+          <tr><td>GPS sans position</td><td class="def">Impossible de mesurer une distance.</td></tr>
+          <tr><td>Branche sans repli</td><td class="def">Une mauvaise réponse n'aurait nulle part où aller.</td></tr>
+          <tr><td>Flag jamais posé</td><td class="def">Une porte que rien n'ouvre.</td></tr>
+          <tr><td>Média manquant ou inutilisé</td><td class="def">Un blanc à l'écran, ou du poids inutile.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Le bouton <span class="ui">▶ Tester le parcours</span> lance une partie d'essai avec un panneau de contrôle&nbsp;: passer une étape en réussite ou en échec, sauter à n'importe quel nœud, activer ou retirer un flag à la volée. Rien n'est enregistré dans les résultats.</p>
+  </section>
+
+  <section id="terrain">
+    <span class="h2-num">10</span>
+    <h2>Préparer le terrain</h2>
+    <ol class="marche">
+      <li>
+        <strong>Imprimez la planche de QR</strong>
+        <p><span class="ui">Planche de QR</span> produit une page A4 avec, pour chaque point&nbsp;: son numéro d'ordre, son QR, le titre du nœud, le code en clair — que l'équipe pourra saisir si la caméra refuse — et ses coordonnées, pour retrouver l'endroit le jour de la pose.</p>
+      </li>
+      <li>
+        <strong>Téléchargez les tuiles de la zone</strong>
+        <p>Cadrez la carte sur votre terrain, choisissez un <span class="ui">Fond de carte</span>, puis <span class="ui">Pré-cacher cette zone</span>. L'application télécharge les niveaux de zoom autour du vôtre&nbsp;; l'estimation du nombre de tuiles et de la durée s'affiche avant de lancer.</p>
+        <p>Cadrez au plus juste&nbsp;: le nombre de tuiles croît très vite avec la surface.</p>
+      </li>
+      <li>
+        <strong>Exportez le parcours</strong>
+        <p><span class="ui">Exporter .zip</span> produit un fichier unique contenant le scénario et ses médias. C'est ce fichier que reçoivent les autres encadrants — ils l'ouvrent avec <span class="ui">Importer .zip</span>, sur leur propre téléphone.</p>
+      </li>
+      <li>
+        <strong>Faites une répétition hors ligne</strong>
+        <p>Mode avion, puis une partie de test du début à la fin. C'est le seul moyen de vérifier que les tuiles sont là et que les QR se scannent vraiment.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section id="jouer">
+    <span class="h2-num">11</span>
+    <h2>Le jour J</h2>
+    <p>Chaque équipe ouvre <span class="ui">Jouer</span> sur son téléphone, saisit son nom, et se laisse guider. L'écran affiche une étape à la fois&nbsp;: son titre, sa description, éventuellement une image, un son, une question, et ce qu'il faut faire pour passer.</p>
+    <p>Si l'option <span class="ui">Carte visible par les joueurs</span> est active, chaque étape positionnée montre une mini-carte avec la destination et, si le GPS répond, la position de l'équipe.</p>
+    <ul>
+      <li><strong>Une partie interrompue se reprend.</strong> En rouvrant l'application, l'équipe retrouve <span class="ui">Reprendre l'aventure</span> à l'endroit exact où elle s'était arrêtée.</li>
+      <li><strong>Le GPS peut refuser.</strong> Un bouton de validation manuelle apparaît alors, et la validation est notée comme manuelle dans les résultats.</li>
+      <li><strong>La caméra aussi.</strong> Le champ de saisie du code figure toujours sous le scanner.</li>
+    </ul>
+    <div class="note">
+      <span class="lbl">Économiser la batterie</span>
+      <p>Le scanner et le suivi GPS ne tournent que sur l'étape qui en a besoin, et s'arrêtent dès qu'elle est validée. Sur les appareils qui le permettent, un bouton de lampe apparaît sous le scanner pour les QR posés à l'ombre.</p>
+    </div>
+  </section>
+
+  <section id="resultats">
+    <span class="h2-num">12</span>
+    <h2>Après la course</h2>
+    <p>À l'arrivée, chaque équipe voit son temps, le nombre d'étapes franchies, ses essais et le détail de son parcours. Trois choses lui sont proposées&nbsp;:</p>
+    <ul>
+      <li><span class="ui">Partager le résultat</span> — un récapitulatif texte, prêt à envoyer.</li>
+      <li><span class="ui">Exporter le fichier</span> — un <span class="ui">.json</span> à transmettre à l'organisateur.</li>
+      <li><span class="ui">Comparer les équipes</span> — l'écran Résultats.</li>
+    </ul>
+    <p>Sur l'écran <span class="ui">Résultats</span>, déposez les fichiers rapportés par toutes les équipes. Le classement se construit sur place&nbsp;: <strong>le moins d'erreurs d'abord, le temps départage</strong>. En dessous, «&nbsp;Où les équipes ont buté&nbsp;» donne le temps moyen passé sur chaque étape — c'est ce qui vous dira quelle énigme retoucher pour l'an prochain. Un export <span class="ui">.csv</span> permet de reprendre les chiffres ailleurs.</p>
+  </section>
+
+  <section id="gestes">
+    <span class="h2-num">13</span>
+    <h2>Gestes et raccourcis</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Geste</th><th>Effet</th></tr></thead>
+        <tbody>
+          <tr><td><kbd>Ctrl</kbd> + <kbd>Z</kbd></td><td class="def">Annuler. Une saisie continue compte pour une seule annulation.</td></tr>
+          <tr><td><kbd>Ctrl</kbd> + <kbd>Maj</kbd> + <kbd>Z</kbd></td><td class="def">Rétablir.</td></tr>
+          <tr><td><kbd>Suppr</kbd></td><td class="def">Dans le graphe&nbsp;: supprime le nœud ou le lien sélectionné.</td></tr>
+          <tr><td>Double-clic sur la barre centrale</td><td class="def">Bascule le partage carte / graphe entre horizontal et vertical.</td></tr>
+          <tr><td>Glisser la barre centrale</td><td class="def">Change la place accordée à chaque moitié.</td></tr>
+          <tr><td>Glisser un marqueur</td><td class="def">Déplace le nœud sur la carte&nbsp;; le tracé suit.</td></tr>
+          <tr><td>Bouton <span class="ui">?</span></td><td class="def">Rouvre le tour d'initiation, à tout moment.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="limites">
+    <span class="h2-num">14</span>
+    <h2>Ce qu'il faut savoir</h2>
+    <ul>
+      <li><strong>Le contenu des QR reste en caractères simples.</strong> Pas d'accents&nbsp;: le scanner intégré ne les relit pas.</li>
+      <li><strong>La bibliothèque vit dans un navigateur, sur un appareil.</strong> Elle ne se synchronise pas. Le <span class="ui">.zip</span> est le moyen de transport.</li>
+      <li><strong>Caméra et GPS exigent une adresse sécurisée.</strong> En <span class="ui">https</span>, tout fonctionne&nbsp;; les replis manuels prennent le relais sinon.</li>
+      <li><strong>Les tuiles pré-cachées valent pour un fond de carte.</strong> Changer de fond après coup demande de retélécharger.</li>
+      <li><strong>Une partie de test ne compte pas.</strong> Elle n'est ni enregistrée, ni exportable, ni classée.</li>
+    </ul>
+    <footer>
+      <p>Notice de la version 0.3. Les libellés cités correspondent à ceux de l'application&nbsp;; l'inventaire des correctifs et la trajectoire technique sont documentés séparément dans l'audit du projet.</p>
+    </footer>
+  </section>
+
+  </main>
+</div>
