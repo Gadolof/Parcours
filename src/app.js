@@ -22,11 +22,24 @@ import '../vendor/qrcode_UTF8.mjs';   // effet de bord : encode les accents
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
+/**
+ * Applique un objet de styles. `Object.assign` sur une CSSStyleDeclaration
+ * ignore silencieusement les propriétés personnalisées : `--pct` n'était
+ * jamais posé, et la barre de progression du joueur n'a jamais avancé.
+ */
+function applyStyle(node, styles) {
+  for (const [prop, valeur] of Object.entries(styles)) {
+    if (valeur == null) continue;
+    if (prop.startsWith('--')) node.style.setProperty(prop, String(valeur));
+    else node.style[prop] = valeur;
+  }
+}
+
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
     if (k === 'class') node.className = v;
-    else if (k === 'style' && typeof v === 'object') Object.assign(node.style, v);
+    else if (k === 'style' && typeof v === 'object') applyStyle(node, v);
     else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
     else if (v === true) node.setAttribute(k, '');
     else if (v !== false && v != null) node.setAttribute(k, v);
@@ -36,6 +49,15 @@ function el(tag, attrs = {}, ...children) {
     node.append(c.nodeType ? c : document.createTextNode(String(c)));
   }
   return node;
+}
+
+/**
+ * « 0 nœud(s) » est le pluriel des machines. Le français en a un vrai,
+ * et cette application soigne trop sa typographie pour s'en passer.
+ */
+function compte(n, singulier, pluriel = null) {
+  const mot = n > 1 ? (pluriel || singulier + 's') : singulier;
+  return `${n} ${mot}`;
 }
 
 // Détection mobile dynamique (respecte rotations/resize)
@@ -901,8 +923,17 @@ const Scenario = {
       validation: null,
       ...overrides
     };
-    if (type === 'etape' || type === 'enigme' || type === 'checkpoint') {
+    // Une énigme se valide par sa réponse : lui donner en plus une
+    // validation QR affichait un réglage sans effet, et la vérification
+    // en réclamait le contenu.
+    if (type === 'etape' || type === 'checkpoint') {
       if (!n.validation) n.validation = { type: 'qr', value: '', radius: 20 };
+    } else {
+      // Même forme qu'après migration : pas de champ du tout, plutôt qu'un
+      // `null` qui ressemble à un réglage vidé.
+      delete n.validation;
+    }
+    if (type === 'etape' || type === 'enigme' || type === 'checkpoint') {
       if (!n.onWrong) n.onWrong = ON_WRONG.RETRY;
     }
     if (type === 'enigme') {
@@ -1411,8 +1442,9 @@ const Inspector = {
       frag.appendChild(posSection);
     }
 
-    // Validation (sauf intro/outro)
-    if (node.type !== 'intro' && node.type !== 'outro') {
+    // Validation : ni pour intro/outro, ni pour une énigme — celle-ci se
+    // juge sur sa réponse, et le moteur ignore son bloc `validation`.
+    if (node.type !== 'intro' && node.type !== 'outro' && node.type !== 'enigme') {
       const valSection = el('div', { class: 'inspector-section' });
       valSection.appendChild(el('h3', {}, 'Validation'));
 
@@ -1462,7 +1494,7 @@ const Inspector = {
       }
 
       // Une réponse peut être fausse dès qu'il y a quelque chose à comparer.
-      if (node.type === 'enigme' || valType === 'qr' || valType === 'code') {
+      if (valType === 'qr' || valType === 'code') {
         valSection.appendChild(FormBuilder.render([
           {
             key: 'onWrong', label: 'Si la réponse est fausse', type: 'select',
@@ -1478,6 +1510,26 @@ const Inspector = {
       frag.appendChild(valSection);
     }
 
+    // L'énigme d'abord : question et réponse sont le contenu du nœud,
+    // pas un réglage annexe.
+    if (node.type === 'enigme') {
+      const enSection = el('div', { class: 'inspector-section' });
+      enSection.appendChild(el('h3', {}, 'Énigme'));
+      enSection.appendChild(FormBuilder.render([
+        { key: 'question', label: 'Question', type: 'textarea', rows: 2, placeholder: 'Ce qu\'on demande à l\'équipe.' },
+        { key: 'answer', label: 'Réponse attendue', type: 'text', hint: 'Comparaison insensible à la casse et aux accents.' },
+        {
+          key: 'onWrong', label: 'Si la réponse est fausse', type: 'select',
+          options: [
+            [ON_WRONG.RETRY, 'Rester sur place et réessayer'],
+            [ON_WRONG.CONTINUE, 'Avancer quand même']
+          ],
+          hint: 'Avec « avancer », le joueur suit le lien « si incorrect » s\'il existe, sinon le lien normal.'
+        }
+      ], node, onChange));
+      frag.appendChild(enSection);
+    }
+
     // Flags posés à la complétion — c'est ce qui manquait pour que les
     // conditions « si flag » et les checkpoints veuillent dire quelque chose.
     if (node.type !== 'outro') {
@@ -1491,17 +1543,6 @@ const Inspector = {
         node, 'requiresFlags', 'Flags exigés',
         'L\'équipe ne franchit ce checkpoint qu\'en les ayant tous. Sans flag exigé, il se comporte comme une étape.'
       ));
-    }
-
-    // Champs spécifiques énigme
-    if (node.type === 'enigme') {
-      const enSection = el('div', { class: 'inspector-section' });
-      enSection.appendChild(el('h3', {}, 'Énigme'));
-      enSection.appendChild(FormBuilder.render([
-        { key: 'question', label: 'Question', type: 'textarea', rows: 2 },
-        { key: 'answer', label: 'Réponse', type: 'text', hint: 'Comparaison insensible à la casse et aux accents.' }
-      ], node, onChange));
-      frag.appendChild(enSection);
     }
 
     // Médias
@@ -1586,7 +1627,10 @@ const Inspector = {
     const linksTo   = Scenario.getLinksTo(node.id);
 
     const linkSection = el('div', { class: 'inspector-section' });
-    linkSection.appendChild(el('h3', {}, `Liens (${linksFrom.length} sortant(s), ${linksTo.length} entrant(s))`));
+    linkSection.appendChild(el('h3', {}, 'Liens',
+      el('span', { class: 'section-count' },
+        `${compte(linksFrom.length, 'sortant')} · ${compte(linksTo.length, 'entrant')}`)
+    ));
 
     if (linksFrom.length === 0) {
       linkSection.appendChild(el('p', { style: { fontSize: '12px', color: 'var(--ink-faint)', fontStyle: 'italic' } },
@@ -1640,7 +1684,7 @@ const Inspector = {
           const liens = Scenario.getLinksFrom(node.id).length + Scenario.getLinksTo(node.id).length;
           if (await Modal.confirm(`Supprimer « ${node.title} » ?`, {
             titre: 'Supprimer le nœud', valider: 'Supprimer', danger: true,
-            detail: liens ? `${liens} lien(s) seront supprimés avec lui.` : null
+            detail: liens ? `${compte(liens, 'lien')} ${liens > 1 ? 'seront supprimés' : 'sera supprimé'} avec lui.` : null
           })) {
             Editor.removeNode(node.id);
           }
@@ -1781,8 +1825,8 @@ const Inspector = {
     stats.appendChild(el('h3', {}, 'Statistiques'));
     stats.appendChild(el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } },
       el('span', { class: 'chip' }, `${scn.nodes.length} nœud${scn.nodes.length > 1 ? 's' : ''}`),
-      el('span', { class: 'chip' }, `${scn.links.length} lien${scn.links.length > 1 ? 's' : ''}`),
-      el('span', { class: 'chip' }, `${scn.assets.length} asset${scn.assets.length > 1 ? 's' : ''}`),
+      el('span', { class: 'chip' }, compte(scn.links.length, 'lien')),
+      el('span', { class: 'chip' }, compte(scn.assets.length, 'média')),
       el('span', { class: 'chip' }, (() => {
         const m = mainRouteDistance(scn);
         return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
@@ -1856,7 +1900,7 @@ const Inspector = {
       const zoom = Editor.map?.getZoom?.() || '?';
       cacheStats.innerHTML = '';
       cacheStats.appendChild(el('div', {},
-        `${nProv} tuile(s) ${TILE_PROVIDERS[providerId].name} · ${nAll} au total · zoom carte : ${zoom}`));
+        `${compte(nProv, 'tuile')} ${TILE_PROVIDERS[providerId].name} · ${nAll} au total · zoom carte : ${zoom}`));
       if (est && est.quota) {
         // Un nombre de tuiles ne dit rien de la place restante : c'est le
         // quota qui décide si le pré-cache tiendra jusqu'au bout.
@@ -1914,10 +1958,10 @@ const Inspector = {
 
     section.appendChild(el('div', { class: 'check-summary' },
       erreurs.length
-        ? el('span', { class: 'chip danger' }, `${erreurs.length} erreur${erreurs.length > 1 ? 's' : ''}`)
+        ? el('span', { class: 'chip danger' }, compte(erreurs.length, 'erreur'))
         : el('span', { class: 'chip' }, 'aucune erreur'),
       avertissements.length
-        ? el('span', { class: 'chip warn' }, `${avertissements.length} avertissement${avertissements.length > 1 ? 's' : ''}`)
+        ? el('span', { class: 'chip warn' }, compte(avertissements.length, 'avertissement'))
         : null
     ));
 
@@ -2083,6 +2127,7 @@ const Editor = {
           <div class="pane-header"><span class="dot" aria-hidden="true"></span>Carte
             <span class="count" id="map-count" title="Nœuds positionnés sur la carte">0</span>
             <span class="route-info" id="route-info" title="Longueur du chemin principal"></span>
+            <button class="pane-action" id="fit-btn" title="Cadrer sur le parcours" aria-label="Cadrer la carte sur le parcours">⤢</button>
           </div>
           <div id="map"></div>
         </div>
@@ -2121,6 +2166,8 @@ const Editor = {
     this.backdropEl.addEventListener('click', () => this._closeInspector());
 
     // Annuler / rétablir
+    $('#fit-btn', container).addEventListener('click', () => this.fitToRoute());
+
     const undoBtn = $('#undo-btn', container);
     const redoBtn = $('#redo-btn', container);
     undoBtn.addEventListener('click', () => this.annuler());
@@ -2813,6 +2860,26 @@ const Editor = {
 
 
 
+  /**
+   * Cadre la carte sur l'ensemble des nœuds positionnés.
+   *
+   * L'éditeur restaurait le dernier cadrage enregistré, sans jamais offrir
+   * de revenir au parcours : après un déplacement, retrouver ses points
+   * demandait de zoomer à la main.
+   */
+  fitToRoute() {
+    if (!this.map) return;
+    const points = Scenario.current.nodes
+      .filter(hasPosition)
+      .map(n => [n.position.lat, n.position.lng]);
+    if (!points.length) { Toast.info('Aucun nœud n\'est encore placé sur la carte'); return; }
+    if (points.length === 1) {
+      this.map.setView(points[0], Math.max(this.map.getZoom(), 16), { animate: false });
+      return;
+    }
+    this.map.fitBounds(L.latLngBounds(points), { padding: [48, 48], animate: false, maxZoom: 17 });
+  },
+
   centerOn(nodeId) {
     const node = Scenario.getNode(nodeId);
     if (!hasPosition(node)) { Toast.warn('Ce nœud n\'a pas encore de position'); return; }
@@ -2875,7 +2942,7 @@ const Editor = {
         progress.querySelector('.progress-done').textContent = String(done);
         progress.querySelector('.progress-total').textContent = String(total);
         progress.querySelector('.bar').style.setProperty('--pct', ((done / total) * 100) + '%');
-        stats.textContent = `${dl} téléchargé(s) · ${skipped} déjà en cache · ${errors} erreur(s)`;
+        stats.textContent = `${compte(dl, 'téléchargée')} · ${skipped} déjà en cache · ${compte(errors, 'erreur')}`;
       };
       modal._close = close;
     });
@@ -2889,7 +2956,7 @@ const Editor = {
 
     if (cancelled) Toast.warn(`Annulé après ${res.done}/${res.total} tuiles`);
     else if (res.errors > 0 && res.errors === res.total - res.skipped) Toast.error(`Toutes les requêtes ont échoué. Essaie un autre fond de carte.`);
-    else Toast.ok(`${res.done - res.skipped} tuile(s) téléchargée(s)${res.errors ? ', ' + res.errors + ' erreur(s)' : ''}`);
+    else Toast.ok(`${compte(res.done - res.skipped, 'tuile')} en cache${res.errors ? ', ' + compte(res.errors, 'erreur') : ''}`);
 
     Inspector.render();
   },
@@ -3138,7 +3205,7 @@ const QR = {
     }
     const sansValeur = aImprimer.filter(({ node }) => !String(node.validation.value || '').trim());
     if (sansValeur.length) {
-      Toast.warn(`${sansValeur.length} nœud(s) sans contenu de QR : ils sont ignorés`);
+      Toast.warn(`${compte(sansValeur.length, 'nœud')} sans contenu de QR : ${sansValeur.length > 1 ? 'ignorés' : 'ignoré'}`);
     }
     const prets = aImprimer.filter(({ node }) => String(node.validation.value || '').trim());
     if (!prets.length) return;
@@ -3147,7 +3214,7 @@ const QR = {
     const sheet = el('div', { id: 'qr-sheet', class: 'qr-sheet' });
     sheet.appendChild(el('div', { class: 'qr-sheet-header' },
       el('h1', {}, scn.meta.title || 'Parcours'),
-      el('p', {}, `${prets.length} point(s) à poser · imprimé le ${formatDate(Date.now())}`)
+      el('p', {}, `${compte(prets.length, 'point')} à poser · imprimé le ${formatDate(Date.now())}`)
     ));
 
     const grille = el('div', { class: 'qr-grid' });
@@ -3206,7 +3273,7 @@ const IO = {
         if (!blob) { manquants++; continue; }
         zip.file(`assets/${a.id}_${a.name}`, blob);
       }
-      if (manquants) Toast.warn(`${manquants} média(s) introuvable(s), exportés sans contenu`);
+      if (manquants) Toast.warn(`${compte(manquants, 'média')} introuvable${manquants > 1 ? 's' : ''} : exporté${manquants > 1 ? 's' : ''} sans contenu`);
 
       const blob = await zip.generateAsync({ type: 'blob' });
       const filename = `${slugify(scn.meta.title)}.zip`;
@@ -3409,7 +3476,7 @@ const Player = {
   // ---------- Écrans ----------
   _renderEmpty(opts) {
     this.container.innerHTML = '';
-    const w = el('div', { class: 'play-wrapper' });
+    const w = el('div', { class: 'play-wrapper solo' });
     w.appendChild(el('div', { class: 'play-start-card' },
       el('div', { class: 'kicker' }, opts.test ? 'Test impossible' : 'Aucun scénario'),
       el('h1', {}, opts.test ? 'Rien à ' : 'Charger un ', el('em', {}, opts.test ? 'tester' : 'parcours')),
@@ -3441,7 +3508,7 @@ const Player = {
   _renderStart(opts) {
     const scn = this.scenario;
     this.container.innerHTML = '';
-    const w = el('div', { class: 'play-wrapper' });
+    const w = el('div', { class: 'play-wrapper solo' });
 
     const teamInput = el('input', {
       type: 'text',
@@ -3461,7 +3528,7 @@ const Player = {
       ),
       scn.meta.description && el('p', { class: 'pitch' }, scn.meta.description),
       el('div', { class: 'info-row' },
-        el('span', { class: 'chip' }, `${scn.nodes.length} nœud(s)`),
+        el('span', { class: 'chip' }, compte(scn.nodes.length, 'nœud')),
         scn.meta.duration && el('span', { class: 'chip' }, `~${scn.meta.duration} min`),
         scn.meta.difficulty && el('span', { class: 'chip' }, scn.meta.difficulty),
         scn.meta.author && el('span', { class: 'chip' }, scn.meta.author)
@@ -3491,7 +3558,7 @@ const Player = {
 
   _renderResume(saved) {
     this.container.innerHTML = '';
-    const w = el('div', { class: 'play-wrapper' });
+    const w = el('div', { class: 'play-wrapper solo' });
     const current = Scenario.getNode(saved.currentNodeId);
     const progress = saved.history.length;
 
@@ -3499,7 +3566,7 @@ const Player = {
       el('div', { class: 'kicker' }, 'Partie en cours'),
       el('h1', {}, 'Reprendre l\'', el('em', {}, 'aventure')),
       el('p', { class: 'pitch' },
-        `${saved.teamName} · ${progress} étape(s) · en cours à "${current?.title || '?'}"`
+        `${saved.teamName} · ${compte(progress, 'étape')} · en cours à « ${current?.title || '?'} »`
       ),
       el('button', {
         class: 'btn-huge accent',
@@ -4239,23 +4306,33 @@ const Player = {
     });
     endCard.appendChild(recap);
 
-    endCard.appendChild(el('div', { class: 'btn-row' },
-      el('button', { class: 'btn accent', onclick: () => this._shareWhatsApp(results) }, '💬 Partager WhatsApp'),
-      el('button', { class: 'btn ghost', onclick: () => location.hash = 'results' }, 'Comparer les équipes'),
-      el('button', { class: 'btn', onclick: () => this._exportResults(results) }, '⬇ Exporter JSON'),
-      el('button', {
-        class: 'btn ghost',
-        onclick: async () => {
-          if (this.state.testMode) {
-            location.hash = 'editor';
-          } else if (await Modal.confirm('Recommencer une nouvelle partie ?',
-                                         { titre: 'Nouvelle partie', valider: 'Recommencer' })) {
-            PlayerState.clear(this.scenario.id);
-            this.mount(this.container, { test: false });
+    // Une action principale, le reste en retrait. Quatre boutons de trois
+    // styles différents ne disaient pas ce qu'on est censé faire ensuite.
+    const partage = el('div', { class: 'end-actions' },
+      el('button', { class: 'btn-huge accent', onclick: () => this._shareWhatsApp(results) },
+        'Partager le résultat'),
+      el('div', { class: 'btn-row secondaires' },
+        el('button', { class: 'btn ghost', onclick: () => this._exportResults(results) },
+          'Exporter le fichier'),
+        el('button', { class: 'btn ghost', onclick: () => location.hash = 'results' },
+          'Comparer les équipes'),
+        el('button', {
+          class: 'btn ghost',
+          onclick: async () => {
+            if (this.state.testMode) {
+              location.hash = 'editor';
+            } else if (await Modal.confirm('Recommencer une nouvelle partie ?',
+                                           { titre: 'Nouvelle partie', valider: 'Recommencer' })) {
+              PlayerState.clear(this.scenario.id);
+              this.mount(this.container, { test: false });
+            }
           }
-        }
-      }, this.state.testMode ? '← Éditeur' : 'Nouvelle partie')
-    ));
+        }, this.state.testMode ? 'Retour à l\'éditeur' : 'Nouvelle partie')
+      )
+    );
+    endCard.appendChild(partage);
+    endCard.appendChild(el('p', { class: 'end-hint' },
+      'Le fichier exporté sert à l\'organisateur : il y compare les équipes.'));
 
     w.appendChild(endCard);
     this.container.appendChild(w);
@@ -4377,7 +4454,7 @@ const Results = {
       Toast.error('Aucun résultat exploitable dans ces fichiers');
       this.classement = null;
     } else {
-      if (this.classement.ignores) Toast.info(`${this.classement.ignores} fichier(s) ignoré(s)`);
+      if (this.classement.ignores) Toast.info(`${compte(this.classement.ignores, 'fichier')} ignoré${this.classement.ignores > 1 ? 's' : ''}`);
       if (this.classement.melange) Toast.warn('Ces résultats ne viennent pas tous du même parcours');
     }
     this.render();
@@ -4389,7 +4466,7 @@ const Results = {
 
     frag.appendChild(el('h2', { class: 'results-title' },
       c.scenarioTitle || 'Résultats',
-      el('span', { class: 'count' }, `${c.equipes.length} équipe${c.equipes.length > 1 ? 's' : ''}`)
+      el('span', { class: 'count' }, compte(c.equipes.length, 'équipe'))
     ));
 
     const table = el('div', { class: 'ranking' });
@@ -4604,47 +4681,64 @@ const App = {
       )
     ));
 
-    container.appendChild(el('div', { class: 'home-actions' },
-      el('button', { class: 'home-card', onclick: () => location.hash = 'editor' },
-        el('div', { class: 'num' }, '01 — Continuer'),
+    // Le scénario courant ne vaut d'être « continué » que s'il contient
+    // quelque chose : sur une première visite, la carte « Continuer »
+    // proposait de reprendre un parcours vide, et portait le même titre
+    // que « Créer ». Les libellés disent l'action, pas un rang : ces
+    // quatre entrées ne forment pas une séquence.
+    const aDuTravail = scn.nodes.length > 0;
+    const actions = el('div', { class: 'home-actions' });
+
+    if (aDuTravail) {
+      actions.appendChild(el('button', { class: 'home-card primary', onclick: () => location.hash = 'editor' },
+        el('div', { class: 'num' }, 'Reprendre'),
         el('h3', {}, scn.meta.title || 'Scénario courant'),
-        el('p', {}, `${scn.nodes.length} nœud(s), ${scn.links.length} lien(s) · MAJ ${formatDate(scn.updatedAt)}`)
-      ),
-      el('button', {
-        class: 'home-card', onclick: async () => {
-          // Sauvegarder le courant puis créer un vierge
-          if (Storage.save) Storage.save();
-          const blank = Scenario.blank();
-          Scenario.load(blank);
-          await Library.put(blank);
-          Storage.setCurrent(blank.id);
-          location.hash = 'editor';
-          Toast.ok('Nouveau scénario');
-        }
-      },
-        el('div', { class: 'num' }, '02 — Créer'),
-        el('h3', {}, 'Nouveau parcours'),
-        el('p', {}, 'Partir d\'une page blanche, poser le premier jalon.')
-      ),
-      el('button', { class: 'home-card', onclick: () => IO.importZipDialog() },
-        el('div', { class: 'num' }, '03 — Importer'),
-        el('h3', {}, 'Ouvrir un ZIP'),
-        el('p', {}, 'Reprendre un scénario partagé par un·e coéquipier·ère.')
-      ),
-      el('button', { class: 'home-card', onclick: () => location.hash = 'player' },
-        el('div', { class: 'num' }, '04 — Jouer'),
-        el('h3', {}, 'Lancer une partie'),
-        el('p', {}, 'Une équipe, un scénario, une aventure hors ligne.')
-      )
+        el('p', {}, `${compte(scn.nodes.length, 'nœud')}, ${compte(scn.links.length, 'lien')} · modifié le ${formatDate(scn.updatedAt)}`)
+      ));
+    }
+
+    actions.appendChild(el('button', {
+      class: 'home-card' + (aDuTravail ? '' : ' primary'),
+      onclick: async () => {
+        if (Storage.save) Storage.save();
+        const blank = Scenario.blank();
+        Scenario.load(blank);
+        await Library.put(blank);
+        Storage.setCurrent(blank.id);
+        location.hash = 'editor';
+        Toast.ok('Nouveau scénario');
+      }
+    },
+      el('div', { class: 'num' }, 'Créer'),
+      el('h3', {}, 'Nouveau parcours'),
+      el('p', {}, 'Partir d\'une page blanche, poser le premier jalon.')
     ));
+
+    actions.appendChild(el('button', { class: 'home-card', onclick: () => IO.importZipDialog() },
+      el('div', { class: 'num' }, 'Importer'),
+      el('h3', {}, 'Ouvrir un ZIP'),
+      el('p', {}, 'Reprendre un scénario partagé par un·e coéquipier·ère.')
+    ));
+
+    actions.appendChild(el('button', {
+      class: 'home-card',
+      onclick: () => location.hash = aDuTravail ? 'player' : 'results'
+    },
+      el('div', { class: 'num' }, aDuTravail ? 'Jouer' : 'Comparer'),
+      el('h3', {}, aDuTravail ? 'Lancer une partie' : 'Résultats d\'équipes'),
+      el('p', {}, aDuTravail
+        ? 'Une équipe, un scénario, une aventure hors ligne.'
+        : 'Déposer les fichiers rapportés par les équipes pour les classer.')
+    ));
+
+    container.appendChild(actions);
 
     // Bibliothèque
     const library = await Library.list();
     const libSection = el('div', { class: 'home-recent' });
-    libSection.appendChild(el('h2', {},
+    libSection.appendChild(el('h2', { class: 'library-title' },
       `Bibliothèque (${library.length})`,
-      el('span', { style: { float: 'right', fontSize: '10px', color: 'var(--ink-faint)', letterSpacing: '0.1em' } },
-        'stockée dans ce navigateur')
+      el('span', { class: 'library-note' }, 'stockée dans ce navigateur')
     ));
 
     if (library.length === 0) {
@@ -4666,13 +4760,13 @@ const App = {
           } },
             el('div', { class: 'recent-title' }, entry.title || 'Sans titre'),
             el('div', { class: 'recent-meta' },
-              `${entry.nodeCount} nœud(s) · ${entry.linkCount} lien(s) · ${entry.assetCount} asset(s) · MAJ ${formatDate(entry.updatedAt || 0)}`,
+              `${compte(entry.nodeCount, 'nœud')} · ${compte(entry.linkCount, 'lien')} · ${compte(entry.assetCount, 'média')} · modifié le ${formatDate(entry.updatedAt || 0)}`,
               isCurrent && el('span', { class: 'chip', style: { marginLeft: '8px', borderColor: 'var(--rust)', color: 'var(--rust-dark)' } }, 'courant')
             )
           ),
           el('div', { class: 'lib-actions' },
             el('button', {
-              class: 'btn small',
+              class: 'btn small ghost',
               title: 'Lancer une partie avec ce scénario',
               onclick: async (e) => {
                 e.stopPropagation();

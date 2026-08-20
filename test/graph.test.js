@@ -241,7 +241,7 @@ describe('validateScenario', () => {
       nodes: [N('a', 'etape', { validation: { type: 'qr', value: '' } }), N('f', 'outro')],
       links: [L('a', 'f')], start: 'a'
     });
-    assert.match(erreurs(scn).map(i => i.message).join(' '), /contenu de QR attendu/i);
+    assert.match(erreurs(scn).map(i => i.message).join(' '), /attend un contenu de QR/i);
   });
 
   test('validation GPS sans position', () => {
@@ -250,6 +250,21 @@ describe('validateScenario', () => {
       links: [L('a', 'f')], start: 'a'
     });
     assert.match(erreurs(scn).map(i => i.message).join(' '), /proximité GPS mais n'a pas de position/i);
+  });
+
+  test('une énigme n\'a pas de validation à renseigner', () => {
+    // L'éditeur créait les énigmes avec une validation QR que le moteur
+    // ignore : la vérification en réclamait le contenu, et l'auteur
+    // cherchait un problème qui n'existait pas.
+    const scn = scenario({
+      nodes: [
+        N('q', 'enigme', { question: 'Combien ?', answer: 'Sept', ...POS(48.85, 2.35), validation: { type: 'qr', value: '' } }),
+        N('f', 'outro')
+      ],
+      links: [L('q', 'f')], start: 'q'
+    });
+    assert.equal(scn.nodes[0].validation, undefined, 'la validation vestigiale est écartée');
+    assert.deepEqual(erreurs(scn), [], JSON.stringify(messages(scn)));
   });
 
   test('énigme sans réponse', () => {

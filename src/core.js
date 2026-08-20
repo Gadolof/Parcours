@@ -264,6 +264,10 @@ export function migrateScenario(raw) {
     if (type === 'enigme') {
       node.question = String(n.question ?? '');
       node.answer = String(n.answer ?? '');
+      // Le moteur juge une énigme sur sa réponse. Un bloc `validation`
+      // hérité n'a aucun effet : on l'écarte plutôt que de laisser
+      // l'éditeur proposer un réglage inerte.
+      delete node.validation;
     }
     // Flags : listes de noms, normalisées ici une fois pour toutes.
     node.setsFlags = normaliseFlagList(n.setsFlags);
@@ -576,12 +580,12 @@ export function validateScenario(scn) {
       add(ERREUR, `« ${n.title} » n'a aucun lien sortant : la partie s'arrêtera là.`, n.id);
     }
 
-    // --- Contenu de validation ---
-    if (n.type !== 'intro' && n.type !== 'outro') {
+    // --- Contenu de validation (l'énigme est jugée sur sa réponse) ---
+    if (n.type !== 'intro' && n.type !== 'outro' && n.type !== 'enigme') {
       const v = n.validation || {};
       const valeur = String(v.value || '').trim();
       if ((v.type === 'qr' || v.type === 'code') && !valeur) {
-        const quoi = v.type === 'qr' ? 'contenu de QR attendu' : 'code attendu';
+        const quoi = v.type === 'qr' ? 'contenu de QR' : 'code';
         add(ERREUR, `« ${n.title} » attend un ${quoi}, mais aucun n'est renseigné.`, n.id);
       }
       // Un QR accentué s'encode sans problème mais le décodeur embarqué le
@@ -595,6 +599,9 @@ export function validateScenario(scn) {
       if (!hasPosition(n) && v.type !== 'none') {
         add(AVERTISSEMENT, `« ${n.title} » n'a pas de position sur la carte.`, n.id);
       }
+    }
+    if (n.type === 'enigme' && !hasPosition(n)) {
+      add(AVERTISSEMENT, `« ${n.title} » n'a pas de position sur la carte.`, n.id);
     }
 
     // --- Énigmes ---

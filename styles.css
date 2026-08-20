@@ -199,7 +199,10 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .home-actions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  /* La colonne utile fait 840 px (920 moins les marges) : à 240 px de
+     minimum, la quatrième carte tombait seule sur une deuxième ligne et
+     laissait un trou de deux colonnes. 180 px en fait tenir quatre. */
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
   margin-bottom: 48px;
 }
@@ -213,7 +216,12 @@ input, textarea, select { font: inherit; color: inherit; }
   text-align: left;
   color: inherit;
   font: inherit;
-  display: block;
+  /* Un <button> centre verticalement son contenu : les cartes les plus
+     courtes remontaient leur libellé et la ligne d'accroches ondulait. */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
 }
 .home-card:hover {
   transform: translateY(-2px);
@@ -229,8 +237,10 @@ input, textarea, select { font: inherit; color: inherit; }
   margin-bottom: 8px;
 }
 .home-card h3 {
-  font-size: 22px;
-  margin-bottom: 6px;
+  font-size: 19px;
+  line-height: 1.2;
+  margin-bottom: 8px;
+  text-wrap: balance;
 }
 .home-card p {
   font-size: 13px;
@@ -667,18 +677,33 @@ input, textarea, select { font: inherit; color: inherit; }
 
 .inspector-section {
   margin-bottom: 28px;
+  margin-top: 26px;
 }
 .inspector-section:last-child { margin-bottom: 0; }
+/* Une section titrait dans le même corps, la même casse et une couleur
+   plus pâle que les étiquettes qu'elle contient : la hiérarchie était
+   inversée. Elle est maintenant plus sombre, plus grasse et mieux aérée. */
 .inspector-section h3 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--ink-faint);
-  margin-bottom: 10px;
-  padding-bottom: 6px;
+  letter-spacing: 0.14em;
+  color: var(--ink);
+  margin: 0 0 12px;
+  padding-bottom: 7px;
   border-bottom: 1px solid var(--line);
-  font-weight: 500;
+  font-weight: 600;
+}
+.inspector-section h3 .section-count {
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: none;
+  color: var(--ink-faint);
+  white-space: nowrap;
 }
 
 .node-header {
@@ -718,10 +743,10 @@ input, textarea, select { font: inherit; color: inherit; }
   font-family: var(--font-mono);
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ink-soft);
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
   margin-bottom: 5px;
-  font-weight: 500;
+  font-weight: 400;
 }
 .field input[type="text"],
 .field input[type="number"],
@@ -730,6 +755,10 @@ input, textarea, select { font: inherit; color: inherit; }
 .field select {
   width: 100%;
   padding: 8px 10px;
+  /* Sans cela le libellé le plus long dépasse la largeur du panneau et
+     se fait couper au lieu de tenir dans la boîte. */
+  max-width: 100%;
+  min-width: 0;
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -2017,6 +2046,7 @@ body.placing #graph {
     font-size: 9px;
     top: 8px; left: 8px;
   }
+  #pane-map .pane-header { left: auto; right: 8px; }
 
   /* Inspecteur en bottom sheet */
   .inspector {
@@ -2207,6 +2237,12 @@ body.placing #graph {
 }
 .history-controls button:hover:not(:disabled) { background: var(--paper-2); color: var(--ink); }
 .history-controls button:disabled { opacity: .35; cursor: default; }
+
+/* Leaflet pose ses boutons de zoom en haut à gauche : l'en-tête de la
+   carte s'y superposait et « Carte » était tronqué sur chaque écran. Le
+   panneau du graphe, lui, n'a rien à gauche — mais ses boutons
+   d'annulation occupent la droite. */
+#pane-map .pane-header { left: auto; right: 10px; }
 
 /* Longueur du parcours, dans l'en-tête de la carte */
 .pane-header .route-info {
@@ -2513,4 +2549,84 @@ body.placing #graph {
   .ranking-row .equipe { font-size: 14px; }
   .step-row { grid-template-columns: minmax(0, 1fr) 56px; }
   .step-row .barre, .step-row .essais { display: none; }
+}
+
+/* Les options longues des listes déroulantes : on laisse le texte se
+   réduire plutôt que déborder, et on garde la flèche lisible. */
+.field select {
+  text-overflow: ellipsis;
+  padding-right: 26px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-soft) 50%),
+                    linear-gradient(135deg, var(--ink-soft) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 52%, calc(100% - 9px) 52%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+/* Fin de partie : une action principale, le reste en retrait */
+.end-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 24px;
+}
+.end-actions .btn-row.secondaires {
+  margin: 0;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.end-hint {
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--ink-faint);
+}
+
+/* Les écrans qui ne portent qu'une carte la centraient en haut d'une page
+   vide. On la place dans le premier tiers, là où l'œil la cherche. */
+.play-wrapper.solo {
+  justify-content: center;
+  padding-bottom: 96px;
+}
+
+/* Action rapide logée dans l'en-tête d'un panneau */
+.pane-header .pane-action {
+  background: none;
+  border: none;
+  padding: 0 0 0 4px;
+  margin-left: 2px;
+  color: var(--ink-faint);
+  font-size: 13px;
+  line-height: 1;
+  border-left: 1px solid var(--line);
+}
+.pane-header .pane-action:hover { color: var(--rust-dark); }
+
+/* La carte d'action principale se distingue par un filet d'accent, pas par
+   un aplat : le reste de la page tient déjà sur des nuances de papier. */
+.home-card.primary {
+  border-color: var(--rust-soft);
+  box-shadow: inset 3px 0 0 var(--rust);
+}
+.home-card.primary .num { color: var(--rust-dark); }
+
+/* Titre de la bibliothèque : la mention de stockage passe dessous quand la
+   ligne devient trop courte, au lieu de venir toucher le titre. */
+.library-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+}
+.library-note {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }

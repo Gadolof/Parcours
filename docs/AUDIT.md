@@ -2,7 +2,7 @@
 
 > Revue complète de `index.html` (5 612 lignes : CSS + SPA vanilla JS) à l'état du commit `0fbb3e2`.
 >
-> **Mise à jour — les trois jalons sont livrés, plus une passe charge et terrain.** Les constats B1 à B7 sont corrigés, le code est
+> **Mise à jour — trois jalons livrés, plus une passe charge et terrain, plus une revue d'interface.** Les constats B1 à B7 sont corrigés, le code est
 > découpé (`styles.css`, `src/core.js`, `src/app.js`) et le noyau est couvert par
 > 43 tests. La vérification en navigateur qui a suivi a invalidé la prémisse de B4
 > (voir ci-dessous) et fait apparaître trois défauts d'affichage que la lecture
@@ -23,7 +23,11 @@
 > tactile, jamais testée jusque-là : elle a trouvé cinq défauts de plus,
 > tous corrigés (§01 quater).
 >
-> Couverture : 90 tests du noyau, 114 contrôles de bout en bout dans Chromium.
+> Une cinquième passe a regardé l'application écran par écran, états vides
+> compris. Elle a trouvé sept défauts de plus, dont un qui rendait muette
+> la principale rétroaction du jeu (§01 quinquies).
+>
+> Couverture : 91 tests du noyau, 137 contrôles de bout en bout dans Chromium.
 
 ---
 
@@ -288,6 +292,74 @@ seuls ceux qui portent une action le reprennent.
 Leaflet passait au-dessus de la feuille d'inspecteur (même famille que B13,
 l'échelle des couches est maintenant complète), et la barre de navigation était
 coupée depuis l'ajout de l'entrée « Résultats ».*
+
+## 1 quinquies. Revue d'interface
+
+Passage en revue de chaque écran, y compris ceux qu'aucun test ne visitait :
+accueil vide, joueur sans scénario, fin de partie, tutoriel.
+
+### B20 — La barre de progression n'a jamais avancé
+
+`el()` applique ses styles avec `Object.assign(node.style, …)`. Or une
+`CSSStyleDeclaration` **ignore silencieusement les propriétés personnalisées**
+par cette voie : seul `setProperty()` les pose. La barre de progression du
+joueur reçoit sa valeur par `--pct` — elle est donc restée vide à chaque
+partie, depuis toujours, alors que c'est la principale rétroaction du jeu.
+
+Corrigé dans `el()` lui-même, donc pour tous les appels. Vérifié : le
+remplissage passe de 115 px à 230 px entre deux étapes.
+
+### B21 — Une énigme exposait une validation sans effet
+
+L'éditeur créait chaque énigme avec une `validation` de type QR. Or le moteur
+juge une énigme sur sa réponse et ignore ce bloc. Conséquences : un réglage
+inerte occupait la place d'honneur dans l'inspecteur, et **la vérification
+réclamait en erreur un contenu de QR** pour un nœud parfaitement valide —
+l'auteur cherchait un problème qui n'existait pas. Le message avait de surcroît
+un mot en double.
+
+L'énigme n'a plus de validation ; sa question et sa réponse passent en tête de
+l'inspecteur, à la place qu'occupait le faux réglage.
+
+### B22 — L'en-tête de la carte était illisible
+
+Le bandeau « Carte · nombre · distance » se posait en haut à gauche du
+panneau, exactement là où Leaflet met ses boutons de zoom. Le mot « Carte »
+était tronqué sur chaque écran. Seul l'en-tête de la carte se décale : celui du
+graphe n'a rien à sa gauche, mais ses boutons d'annulation occupent la droite.
+
+### B23 — L'accueil ouvrait sur un doublon
+
+À la première visite, la carte « 01 — Continuer » proposait de reprendre un
+parcours vide et portait le même titre que « 02 — Créer ». La numérotation
+01–04 annonçait par ailleurs une séquence qui n'en est pas une : ce sont quatre
+entrées indépendantes, et « Continuer » n'est pas la première étape d'un
+nouveau venu. Les rangs ont cédé la place aux verbes, la carte de reprise
+n'apparaît que s'il y a du travail, et la quatrième carte ne tombe plus seule
+sur une deuxième ligne.
+
+### B24 — Les cartes désalignaient leurs libellés
+
+Un `<button>` centre verticalement son contenu. Les cartes de l'accueil, de
+hauteurs égales mais de contenus inégaux, faisaient donc onduler la ligne des
+accroches. Elles sont désormais des colonnes flex alignées en haut.
+
+### B25 — La hiérarchie de l'inspecteur était inversée
+
+Titres de section et étiquettes de champ partageaient police, corps, casse et
+graisse — et la section était la **plus pâle** des deux. La structure ne se
+lisait pas. Les sections sont maintenant plus sombres, plus grasses et mieux
+espacées ; les étiquettes s'effacent d'un cran.
+
+### B26 — Détails de langue et de mise en page
+
+Le pluriel « 0 nœud(s) » régnait partout, dans une application qui soigne par
+ailleurs sa typographie : une fonction `compte()` écrit désormais un vrai
+pluriel français. Les écrans à carte unique, qui restaient collés en haut d'une
+page vide, sont centrés. La fin de partie proposait quatre boutons de trois
+styles différents sans dire lequel choisir : une action principale, trois en
+retrait. Enfin, la carte a gagné un bouton « cadrer sur le parcours »,
+affordance qui manquait à un éditeur cartographique.
 
 ## 2. Le trou principal : « hors ligne » n'existe pas — *résolu*
 
@@ -554,13 +626,21 @@ Génération des planches de QR (3.1), panneau de vérification (3.2), tracé et
 | B17 | 375 ms de recalculs de mise en page au rebuild | Moyenne | Moyen | ✅ corrigé |
 | B18 | Anti-zoom iOS annulé par une règle plus spécifique | Moyenne | Faible | ✅ corrigé |
 | B19 | Les toasts bloquent les boutons flottants | Moyenne | Faible | ✅ corrigé |
+| B20 | Barre de progression jamais remplie (`--pct` ignoré) | Élevée | Faible | ✅ corrigé |
+| B21 | Énigme exposant une validation sans effet, fausse erreur | Élevée | Faible | ✅ corrigé |
+| B22 | En-tête de carte tronqué par les boutons Leaflet | Moyenne | Faible | ✅ corrigé |
+| B23 | Accueil ouvrant sur un doublon et une fausse séquence | Moyenne | Faible | ✅ corrigé |
+| B24 | Libellés des cartes désalignés | Faible | Faible | ✅ corrigé |
+| B25 | Hiérarchie inversée dans l'inspecteur | Faible | Faible | ✅ corrigé |
+| B26 | Pluriels machine, écrans vides, hiérarchie des actions | Faible | Faible | ✅ corrigé |
 | §7 | Fichier unique, aucun test, aucun build | Structurelle | Progressif | ✅ découpé, testé |
 
 ---
 
 *Audit réalisé par lecture statique intégrale du source, puis vérifié dans
-Chromium : 90 tests du noyau et 114 contrôles de bout en bout, exécutables
+Chromium : 91 tests du noyau et 137 contrôles de bout en bout, exécutables
 contre le dépôt tel quel (`npm test`, `npm run test:browser`). C'est cette
 vérification qui a corrigé B4 et fait apparaître B11 à B14 — la lecture seule
 ne voit ni une grille CSS mal peuplée, ni un QR que le décodeur rend vide, ni
-un message qui vole le tap d'un bouton.*
+un message qui vole le tap d'un bouton, ni une barre de progression qui ne se
+remplit jamais.*
