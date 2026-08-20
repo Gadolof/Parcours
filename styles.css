@@ -2047,6 +2047,7 @@ body.placing #graph {
     top: 8px; left: 8px;
   }
   #pane-map .pane-header { left: auto; right: 8px; }
+  #pane-graph .pane-header { top: auto; bottom: 8px; }
 
   /* Inspecteur en bottom sheet */
   .inspector {
@@ -2238,11 +2239,13 @@ body.placing #graph {
 .history-controls button:hover:not(:disabled) { background: var(--paper-2); color: var(--ink); }
 .history-controls button:disabled { opacity: .35; cursor: default; }
 
-/* Leaflet pose ses boutons de zoom en haut à gauche : l'en-tête de la
-   carte s'y superposait et « Carte » était tronqué sur chaque écran. Le
-   panneau du graphe, lui, n'a rien à gauche — mais ses boutons
-   d'annulation occupent la droite. */
+/* Chaque panneau a son coin libre. La carte : Leaflet occupe le haut à
+   gauche avec ses boutons de zoom, donc l'en-tête va à droite. Le graphe :
+   ses boutons d'annulation tiennent le haut à droite, et le haut à gauche
+   est l'origine du canvas, là où atterrissent les nœuds — l'en-tête y
+   recouvrait le premier d'entre eux. Il descend donc en bas à gauche. */
 #pane-map .pane-header { left: auto; right: 10px; }
+#pane-graph .pane-header { top: auto; bottom: 10px; }
 
 /* Longueur du parcours, dans l'en-tête de la carte */
 .pane-header .route-info {
@@ -2629,4 +2632,59 @@ body.placing #graph {
   color: var(--ink-faint);
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+/* Onglet Scénario — actions groupées par intention */
+.btn.block { width: 100%; justify-content: center; }
+.action-group { margin-top: 14px; }
+/* Deux colonnes fixes : en flex, la seconde étiquette dépassait de
+   quelques pixels et chaque bouton prenait sa propre ligne. */
+.action-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.action-pair .btn {
+  width: 100%;
+  justify-content: center;
+  padding-left: 8px;
+  padding-right: 8px;
+  white-space: nowrap;
+}
+.action-group .btn-row { margin: 0; }
+.action-group .action-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-faint);
+  margin-bottom: 6px;
+}
+.action-group.danger-zone {
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+}
+
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.chip.muted { color: var(--ink-faint); border-style: dashed; }
+
+/* État du stockage : un risque, pas une statistique */
+.storage-state {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--forest);
+  background: rgba(74,107,61,.07);
+  color: var(--forest-dark);
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.storage-state.warn {
+  border-left-color: var(--rust);
+  background: rgba(176,97,58,.07);
+  color: var(--rust-dark);
 }

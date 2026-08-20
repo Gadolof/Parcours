@@ -7,7 +7,7 @@
 
 // À incrémenter à chaque déploiement : c'est ce qui déclenche la
 // mise à jour du cache chez les utilisateurs déjà installés.
-const VERSION = 'v0.3.2';
+const VERSION = 'v0.3.3';
 const SHELL = `parcours-shell-${VERSION}`;
 
 const PRECACHE = [

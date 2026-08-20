@@ -1355,7 +1355,7 @@ const Inspector = {
       el('button', {
         class: this.activeTab === 'assets' ? 'active' : '',
         onclick: () => this.setTab('assets')
-      }, 'Assets')
+      }, 'Médias')
     );
 
     const body = el('div', { class: 'inspector-body' });
@@ -1575,7 +1575,7 @@ const Inspector = {
       imgSel.id = 'champ-media-image';
       imgField.appendChild(imgSel);
       if (imageAssets.length === 0) {
-        imgField.appendChild(el('div', { class: 'field-hint' }, 'Ajoute d\'abord des images via l\'onglet Assets.'));
+        imgField.appendChild(el('div', { class: 'field-hint' }, 'Ajoute d\'abord des images via l\'onglet Médias.'));
       }
       mediaSection.appendChild(imgField);
 
@@ -1607,7 +1607,7 @@ const Inspector = {
       audSel.id = 'champ-media-audio';
       audField.appendChild(audSel);
       if (audioAssets.length === 0) {
-        audField.appendChild(el('div', { class: 'field-hint' }, 'Ajoute d\'abord des audios via l\'onglet Assets.'));
+        audField.appendChild(el('div', { class: 'field-hint' }, 'Ajoute d\'abord des sons via l\'onglet Médias.'));
       }
       mediaSection.appendChild(audField);
 
@@ -1820,36 +1820,37 @@ const Inspector = {
     startSection.appendChild(fw);
     frag.appendChild(startSection);
 
-    // Stats
-    const stats = el('div', { class: 'inspector-section' });
-    stats.appendChild(el('h3', {}, 'Statistiques'));
-    stats.appendChild(el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } },
-      el('span', { class: 'chip' }, `${scn.nodes.length} nœud${scn.nodes.length > 1 ? 's' : ''}`),
-      el('span', { class: 'chip' }, compte(scn.links.length, 'lien')),
-      el('span', { class: 'chip' }, compte(scn.assets.length, 'média')),
-      el('span', { class: 'chip' }, (() => {
-        const m = mainRouteDistance(scn);
-        return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
-      })())
-    ));
-    frag.appendChild(stats);
-
-    // Vérification du parcours — avant l'export, pas sur le terrain.
+    // Vérification, puis actions : « mon parcours tient-il debout ? »
+    // avant « qu'est-ce que j'en fais ? ». Les statistiques, qui ne servent
+    // qu'à consulter, descendent en fin de panneau.
     frag.appendChild(this._renderChecklist(scn));
 
-    // Import / export / test
     const io = el('div', { class: 'inspector-section' });
-    io.appendChild(el('h3', {}, 'Projet'));
-    io.appendChild(el('div', { class: 'btn-row' },
-      el('button', { class: 'btn accent', onclick: () => App.testPlay() }, '▶ Tester'),
-      el('button', { class: 'btn ghost', onclick: () => QR.printSheet(scn) }, '⎙ Planche de QR'),
-      el('button', { class: 'btn ghost', onclick: () => IO.exportZip() }, 'Exporter .zip'),
-      el('button', { class: 'btn ghost', onclick: () => IO.importZipDialog() }, 'Importer .zip'),
-      el('button', { class: 'btn ghost', onclick: () => IO.exportJson() }, 'Export JSON')
+    io.appendChild(el('h3', {}, 'Le parcours'));
+
+    // Une action principale : l'essayer.
+    io.appendChild(el('button', {
+      class: 'btn accent block', onclick: () => App.testPlay()
+    }, '▶ Tester le parcours'));
+
+    // Puis ce qu'on en sort, groupé par intention plutôt qu'en vrac.
+    io.appendChild(el('div', { class: 'action-group' },
+      el('div', { class: 'action-label' }, 'Emporter sur le terrain'),
+      el('div', { class: 'action-pair' },
+        el('button', { class: 'btn ghost', onclick: () => QR.printSheet(scn) }, 'Planche de QR'),
+        el('button', { class: 'btn ghost', onclick: () => IO.exportZip() }, 'Exporter .zip')
+      )
     ));
-    io.appendChild(el('div', { class: 'btn-row' },
+    io.appendChild(el('div', { class: 'action-group' },
+      el('div', { class: 'action-label' }, 'Échanger un scénario'),
+      el('div', { class: 'action-pair' },
+        el('button', { class: 'btn ghost', onclick: () => IO.importZipDialog() }, 'Importer .zip'),
+        el('button', { class: 'btn ghost', onclick: () => IO.exportJson() }, 'Exporter .json')
+      )
+    ));
+    io.appendChild(el('div', { class: 'action-group danger-zone' },
       el('button', {
-        class: 'btn ghost danger', onclick: async () => {
+        class: 'btn ghost danger small', onclick: async () => {
           if (await Modal.confirm('Repartir d\'un scénario vierge ?', {
             titre: 'Nouveau scénario', valider: 'Repartir de zéro', danger: true,
             detail: 'Le scénario courant reste dans la bibliothèque, mais tu quittes ce que tu es en train de faire.'
@@ -1859,7 +1860,7 @@ const Inspector = {
             Toast.ok('Nouveau scénario vierge');
           }
         }
-      }, 'Nouveau vierge')
+      }, 'Repartir d\'un scénario vierge')
     ));
     frag.appendChild(io);
 
@@ -1882,7 +1883,7 @@ const Inspector = {
     providerSelect.id = 'champ-fond-carte';
     providerField.appendChild(providerSelect);
     providerField.appendChild(el('div', { class: 'field-hint' },
-      'Les apps tierces ne peuvent pas utiliser tile.openstreetmap.org directement.'
+      'Le fond choisi est celui que verront les joueurs, et celui qui sera téléchargé pour le hors ligne.'
     ));
     cacheSection.appendChild(providerField);
 
@@ -1910,10 +1911,15 @@ const Inspector = {
         cacheStats.appendChild(el('div', { class: 'quota-bar' },
           el('span', { style: { width: pct + '%' } })));
       }
-      cacheStats.appendChild(el('div', { style: { marginTop: '4px' } },
-        persisted === true
-          ? '✓ Stockage persistant : les données ne seront pas évincées.'
-          : 'Stockage non persistant : le navigateur peut effacer scénarios et tuiles s\'il manque de place.'));
+      if (persisted === true) {
+        cacheStats.appendChild(el('div', { class: 'storage-state ok' },
+          'Stockage persistant : rien ne sera effacé sans ton accord.'));
+      } else {
+        // Ce n'est pas une statistique de plus : c'est le risque de perdre
+        // ses scénarios la veille d'une sortie.
+        cacheStats.appendChild(el('div', { class: 'storage-state warn' },
+          'Stockage non garanti : si l\'appareil manque de place, le navigateur peut effacer scénarios et tuiles. Exporte un .zip avant de partir.'));
+      }
     });
     cacheSection.appendChild(el('div', { class: 'btn-row' },
       el('button', { class: 'btn', onclick: () => Editor.precacheZone() }, 'Pré-cacher cette zone'),
@@ -1932,6 +1938,21 @@ const Inspector = {
       }, 'Vider le cache')
     ));
     frag.appendChild(cacheSection);
+
+    // Statistiques : de la consultation, donc en fin de panneau.
+    const stats = el('div', { class: 'inspector-section' });
+    stats.appendChild(el('h3', {}, 'Statistiques'));
+    const longueur = mainRouteDistance(scn);
+    stats.appendChild(el('div', { class: 'stat-grid' },
+      el('span', { class: 'chip' }, compte(scn.nodes.length, 'nœud')),
+      el('span', { class: 'chip' }, compte(scn.links.length, 'lien')),
+      el('span', { class: 'chip' }, compte(scn.assets.length, 'média')),
+      // Un « 0 m » ne renseigne sur rien tant qu'aucun nœud n'est placé.
+      longueur > 0
+        ? el('span', { class: 'chip' }, longueur >= 1000 ? `${(longueur / 1000).toFixed(2)} km` : `${Math.round(longueur)} m`)
+        : el('span', { class: 'chip muted' }, 'sans tracé')
+    ));
+    frag.appendChild(stats);
 
     return frag;
   },
@@ -1993,7 +2014,7 @@ const Inspector = {
     frag.appendChild(el('div', { class: 'inspector-section' },
       el('h3', {}, 'Bibliothèque'),
       el('p', { style: { fontSize: '12px', color: 'var(--ink-soft)' } },
-        'Les images et sons sont stockés dans le scénario et exportés avec le ZIP.')
+        'Images et sons vivent à côté du scénario, et partent avec lui dans le ZIP.')
     ));
 
     // Zone de dépôt
@@ -2014,7 +2035,7 @@ const Inspector = {
     // Liste
     if (scn.assets.length === 0) {
       frag.appendChild(el('p', { style: { fontSize: '12px', color: 'var(--ink-faint)', fontStyle: 'italic', textAlign: 'center', padding: '12px 0' } },
-        'Aucun asset pour le moment.'
+        'Aucun média pour le moment.'
       ));
     } else {
       const list = el('div', { class: 'asset-list' });

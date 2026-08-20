@@ -24,10 +24,10 @@
 > tous corrigés (§01 quater).
 >
 > Une cinquième passe a regardé l'application écran par écran, états vides
-> compris. Elle a trouvé sept défauts de plus, dont un qui rendait muette
+> compris. Elle a trouvé neuf défauts de plus, dont un qui rendait muette
 > la principale rétroaction du jeu (§01 quinquies).
 >
-> Couverture : 91 tests du noyau, 137 contrôles de bout en bout dans Chromium.
+> Couverture : 91 tests du noyau, 143 contrôles de bout en bout dans Chromium.
 
 ---
 
@@ -351,6 +351,31 @@ graisse — et la section était la **plus pâle** des deux. La structure ne se
 lisait pas. Les sections sont maintenant plus sombres, plus grasses et mieux
 espacées ; les étiquettes s'effacent d'un cran.
 
+### B27 — L'en-tête du graphe recouvrait les nœuds
+
+Le bandeau « Graphe · nombre » se posait en haut à gauche du panneau, qui est
+l'origine du canvas Drawflow — donc là où atterrissent les nœuds. Le premier
+d'entre eux passait systématiquement dessous. Chaque panneau a désormais son
+coin libre : la carte à droite (Leaflet tient la gauche), le graphe en bas à
+gauche (ses boutons d'annulation tiennent le haut à droite).
+
+### B28 — L'onglet Scénario était un défilement sans repères
+
+Deux écrans de contenu, avec **« Tester » à un millier de pixels du haut** —
+l'action la plus fréquente de l'auteur, sous les statistiques. L'ordre suit
+maintenant l'usage : définir, vérifier, agir, configurer, consulter. Les six
+boutons du bloc « Projet », qui s'empilaient en vrac sur quatre lignes avec des
+libellés incohérents (« Exporter .zip » à côté d'« Export JSON »), sont groupés
+par intention — *emporter sur le terrain*, *échanger un scénario* — derrière une
+seule action principale, l'action destructrice étant mise à part.
+
+Au passage : le chiffre « 0 m » qui s'affichait comme statistique tant qu'aucun
+nœud n'était placé, l'aide du fond de carte qui expliquait une contrainte de
+CDN au lieu de dire ce que le choix change pour les joueurs, l'avertissement de
+stockage noyé dans la prose alors qu'il annonce la perte possible des scénarios,
+et l'onglet « Assets » resté en anglais dans une interface qui dit « média »
+partout ailleurs.
+
 ### B26 — Détails de langue et de mise en page
 
 Le pluriel « 0 nœud(s) » régnait partout, dans une application qui soigne par
@@ -633,12 +658,14 @@ Génération des planches de QR (3.1), panneau de vérification (3.2), tracé et
 | B24 | Libellés des cartes désalignés | Faible | Faible | ✅ corrigé |
 | B25 | Hiérarchie inversée dans l'inspecteur | Faible | Faible | ✅ corrigé |
 | B26 | Pluriels machine, écrans vides, hiérarchie des actions | Faible | Faible | ✅ corrigé |
+| B27 | En-tête du graphe recouvrant les nœuds | Moyenne | Faible | ✅ corrigé |
+| B28 | Onglet Scénario sans repères, actions en vrac | Moyenne | Moyen | ✅ corrigé |
 | §7 | Fichier unique, aucun test, aucun build | Structurelle | Progressif | ✅ découpé, testé |
 
 ---
 
 *Audit réalisé par lecture statique intégrale du source, puis vérifié dans
-Chromium : 91 tests du noyau et 137 contrôles de bout en bout, exécutables
+Chromium : 91 tests du noyau et 143 contrôles de bout en bout, exécutables
 contre le dépôt tel quel (`npm test`, `npm run test:browser`). C'est cette
 vérification qui a corrigé B4 et fait apparaître B11 à B14 — la lecture seule
 ne voit ni une grille CSS mal peuplée, ni un QR que le décodeur rend vide, ni

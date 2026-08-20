@@ -96,6 +96,17 @@ export default async function run(BASE) {
   r.ok('L\'en-tête de la carte ne croise plus les boutons de zoom', !enTete.chevauche);
   r.ok('Son libellé n\'est pas rogné', !enTete.coupe, enTete.texte);
 
+  /* ---------- L'en-tête du graphe ne recouvre plus les nœuds ---------- */
+  const graphe = await page.evaluate(() => {
+    const h = document.querySelector('#pane-graph .pane-header').getBoundingClientRect();
+    const noeuds = [...document.querySelectorAll('.drawflow-node')].map(n => n.getBoundingClientRect());
+    const recouvre = noeuds.filter(n =>
+      !(h.right < n.left || h.left > n.right || h.bottom < n.top || h.top > n.bottom));
+    return { recouvre: recouvre.length, noeuds: noeuds.length };
+  });
+  r.ok('L\'en-tête du graphe ne recouvre aucun nœud',
+       graphe.recouvre === 0, `${graphe.recouvre} sur ${graphe.noeuds}`);
+
   /* ---------- Cadrer sur le parcours ---------- */
   const cadrage = await page.evaluate(() => {
     const { Editor } = window.Parcours;
@@ -124,6 +135,34 @@ export default async function run(BASE) {
   r.ok('Une énigme neuve ne porte aucune validation',
        !enigme.validationNouvelle && !enigme.validationChargee,
        JSON.stringify(enigme));
+
+  /* ---------- Onglet Scénario : agir avant de consulter ---------- */
+  const scenario = await page.evaluate(() => {
+    window.Parcours.Inspector.setTab('scenario');
+    const titres = [...document.querySelectorAll('.inspector-section h3')]
+      .map(h => h.textContent.replace(/\s+/g, ' ').trim());
+    const paires = [...document.querySelectorAll('.action-pair')].map(p => {
+      const cols = getComputedStyle(p).gridTemplateColumns.split(' ').length;
+      const boutons = [...p.children].map(b => b.getBoundingClientRect());
+      // Deux boutons côte à côte partagent la même ligne.
+      const memeLigne = boutons.length === 2 && Math.abs(boutons[0].top - boutons[1].top) < 2;
+      return { cols, memeLigne };
+    });
+    const body = document.querySelector('.inspector-body');
+    const tester = [...document.querySelectorAll('.inspector button')].find(b => /Tester le parcours/.test(b.textContent));
+    return {
+      titres, paires,
+      testerAvant: titres.indexOf('Le parcours') < titres.indexOf('Statistiques'),
+      verifAvantActions: titres.indexOf('Vérification') < titres.indexOf('Le parcours'),
+      hauteurTester: Math.round(tester.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop)
+    };
+  });
+  r.ok('Les actions passent avant les statistiques',
+       scenario.testerAvant === true, scenario.titres.join(' · '));
+  r.ok('La vérification précède les actions', scenario.verifAvantActions === true);
+  r.ok('Les paires d\'actions tiennent sur une ligne à deux colonnes',
+       scenario.paires.length === 2 && scenario.paires.every(p => p.cols === 2 && p.memeLigne),
+       JSON.stringify(scenario.paires));
 
   /* ---------- Hiérarchie : la section domine ses étiquettes ---------- */
   const hierarchie = await page.evaluate(() => {
@@ -205,6 +244,20 @@ export default async function run(BASE) {
   r.ok('Une seule action principale en fin de partie', fin.principales === 1);
   r.ok('Les actions secondaires partagent un même style',
        fin.secondaires === 3 && fin.styles === 1, `${fin.secondaires} boutons, ${fin.styles} style(s)`);
+
+  /* ---------- Un vocabulaire, pas deux ---------- */
+  await page.goto(BASE + '#editor');
+  await page.waitForSelector('#graph');
+  await page.waitForTimeout(600);
+  const vocabulaire = await page.evaluate(() => {
+    const onglets = [...document.querySelectorAll('.inspector-tabs button')].map(b => b.textContent);
+    window.Parcours.Inspector.setTab('assets');
+    const texte = document.querySelector('.inspector-body').textContent;
+    return { onglets, anglicisme: /\basset/i.test(texte) };
+  });
+  r.ok('L\'onglet des médias ne s\'appelle plus « Assets »',
+       vocabulaire.onglets.includes('Médias'), vocabulaire.onglets.join(' · '));
+  r.ok('Le mot « asset » ne subsiste nulle part à l\'écran', !vocabulaire.anglicisme);
 
   r.ok('Aucune erreur JavaScript', errs.filter(e => !/tile|ERR_/i.test(e)).length === 0, errs.slice(0, 2).join(' | '));
   await browser.close();
